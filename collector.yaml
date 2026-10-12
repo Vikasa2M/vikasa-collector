@@ -43,10 +43,8 @@ collector_id: cabinet-042-collector
 # One catalog version per collector instance (ADR 0005); version coexistence
 # happens across the fleet, never inside one process.
 #
-# NOTE: the openits-models emitter is wired, but this value does not yet select
-# between versions — there is only one emitter package while the models pin is
-# lockstep (ADR 0010). It is validated as non-empty so the config contract is
-# already the one version coexistence will need.
+# This build implements exactly one: openits/v1. Any other value refuses to
+# start (ADR 0014) rather than silently selecting the only emitter there is.
 model_version: openits/v1
 
 # Subject grammar is yours (ADR 0009). Omit this block entirely and you get the

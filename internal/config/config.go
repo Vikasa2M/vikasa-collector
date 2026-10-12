@@ -10,12 +10,15 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
 	"github.com/Vikasa2M/vikasa-collector/internal/subject"
+	"github.com/Vikasa2M/vikasa-collector/internal/wire"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 )
 
@@ -135,8 +138,9 @@ func (c *Config) validate(reg *adapter.Registry) error {
 	if err := c.Tenant().Validate(); err != nil {
 		return err
 	}
-	if c.ModelVersion == "" {
-		return fmt.Errorf("model_version is required")
+	if !slices.Contains(wire.SupportedModelVersions, c.ModelVersion) {
+		return fmt.Errorf("model_version %q is not supported by this build (want one of %s)",
+			c.ModelVersion, strings.Join(wire.SupportedModelVersions, ", "))
 	}
 	if !deviceIDRe.MatchString(c.CollectorID) {
 		return fmt.Errorf("collector_id %q is required and must match %s "+

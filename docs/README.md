@@ -151,16 +151,6 @@ kit (successor A) — a tool that captures real SNMP responses into `testdata/`
 with a sanctioned regeneration path, then re-recording `ntcip-asc` against a
 real controller. Evidence: ledger `:194-210`, `:3428-3440`.
 
-**`model_version` selects nothing.** `internal/config/config.go` validates it
-non-empty and no other code reads it; `internal/app/app.go` builds
-`[]wire.Emitter{openits.New(...), health.NewHealthEmitter()}` unconditionally,
-so any non-empty value produces byte-identical behaviour. ADR 0005 and ADR
-0010 both describe it as selecting the wire emitter at boot. *Closing it:*
-either implement real selection keyed off the value, or validate it against
-the wire package's declared version so an unrecognized value fails at boot —
-which is what ADR 0014's trust-boundary rule already requires and the current
-code does not do. Evidence: ledger `:995-1013`, `:1282-1290`.
-
 **The signal differ has no axis-independence test.** It is the one differ fed
 by the collector's only shipped adapter.
 `internal/synth/signal_test.go`'s `TestTransitionsEmitChangeEvents` moves

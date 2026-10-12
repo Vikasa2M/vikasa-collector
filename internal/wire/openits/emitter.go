@@ -28,6 +28,9 @@ import (
 // contentType is the profile's per-event protobuf encoding.
 const contentType = "application/protobuf"
 
+// ModelVersion is the collector.yaml model_version that selects this emitter.
+const ModelVersion = "openits/v1"
+
 // New returns the openits-models emitter. collectorID identifies this
 // collector as the OBSERVER of events it synthesizes from polling.
 func New(collectorID string) wire.Emitter { return &emitter{collectorID: collectorID} }
