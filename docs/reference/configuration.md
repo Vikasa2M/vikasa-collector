@@ -8,7 +8,8 @@ runs at boot. **Config is the trust boundary** — see
 boundary" row for why the collector refuses to start rather than warn.
 `collector.yaml` itself keeps the *why*: the rationale for each field's
 existence and shape. This document is the *what*: the exhaustive list of
-valid values.
+valid values. Decoding is strict: a key not listed here, or a second
+YAML document in the file, fails boot rather than being ignored.
 
 ## The command line
 
@@ -54,7 +55,7 @@ fail-fast and it is not implemented yet — see
 | `devices.vendor` | string | Yes (per device) | — | Combined with `device_kind`, must resolve to a registered adapter — registry key `"<vendor>-<device_kind>"` (`reg.Known`, called from `Config.validate`'s per-device loop). |
 | `devices.device_kind` | string | Yes (per device) | — | Validated together with `vendor`, above. |
 | `devices.poll_interval` | duration | No | `5s` | Must not be negative; a zero value is defaulted to `5s` by `Config.validate` rather than treated as "poll as fast as possible". |
-| `devices.connection` | map[string]any | Yes (per device, shape adapter-defined) | — | Opaque to the core; parsed and validated by the selected adapter, not by `Config.validate`. |
+| `devices.connection` | map[string]any | Yes (per device, shape adapter-defined) | — | Opaque to the core; parsed and validated by the selected adapter, not by `Config.validate`. Adapters reject unknown keys and wrong-typed values here too — for `ntcip`, only `snmp.address`, `snmp.community` and `snmp.version` are accepted, all strings (quote a numeric community: `community: "1234"`). |
 
 ## Notes on non-obvious fields
 

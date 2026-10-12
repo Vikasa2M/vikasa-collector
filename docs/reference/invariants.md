@@ -149,7 +149,13 @@ rejects an unknown vendor/device-kind, tenant tokens that would corrupt
 subject grammar or the source URN, a subject template that can never yield
 a static stream binding, a malformed `collector_id`, a missing
 `model_version`, zero devices, a duplicate or missing device ID, and a
-negative `poll_interval`.
+negative `poll_interval`. Before any of that, `config.Load` decodes
+strictly: an unknown key anywhere outside a device's `connection` block —
+a misspelled `poll_interval` would otherwise poll at the default — or a
+second YAML document fails boot. The `connection` block is opaque to the
+core, so each adapter enforces the same rule on its own keys; `ntcip`'s
+`parseSNMPBlock` (`internal/vendors/ntcip/register.go`) rejects unknown
+keys and known keys of the wrong type.
 
 ADR 0014 names one sanctioned exception — tolerating an absent broker at
 startup as transient rather than a config error — but that exception is
