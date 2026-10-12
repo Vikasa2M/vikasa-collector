@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -189,5 +190,23 @@ func TestRunnerStampsDeviceKindFromDescriptor(t *testing.T) {
 	}
 	if !sawHealth || !sawDomain {
 		t.Fatalf("test must cover both paths: health=%v domain=%v", sawHealth, sawDomain)
+	}
+}
+
+// A non-positive interval can never be scheduled. config.Load already rejects
+// one, so reaching New with it is a programming error, and it must say so at
+// construction rather than surface as a panic from inside math/rand on the
+// first poll.
+func TestNewRejectsNonPositiveInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			defer func() {
+				msg, _ := recover().(string)
+				if !strings.Contains(msg, "interval") {
+					t.Fatalf("New(interval=%v) panic = %q, want one naming the interval", interval, msg)
+				}
+			}()
+			New(&scriptedAdapter{}, "asc-1", interval, 0, synth.NewEngine(), func([]model.Event) {})
+		})
 	}
 }
