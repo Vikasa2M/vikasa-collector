@@ -194,7 +194,7 @@ func run(stopAfter time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("temp store dir: %w", err)
 	}
-	defer os.RemoveAll(storeDir)
+	defer func() { _ = os.RemoveAll(storeDir) }()
 
 	// Port -1 asks the server for any free port, so two `make dev` runs do
 	// not fight over 4222 and neither collides with a real local broker.
@@ -223,7 +223,7 @@ func run(stopAfter time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("temp config dir: %w", err)
 	}
-	defer os.RemoveAll(cfgDir)
+	defer func() { _ = os.RemoveAll(cfgDir) }()
 	cfgPath := filepath.Join(cfgDir, "collector.yaml")
 	if err := os.WriteFile(cfgPath, []byte(devConfig), 0o600); err != nil {
 		return fmt.Errorf("write dev config: %w", err)

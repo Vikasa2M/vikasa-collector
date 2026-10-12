@@ -210,8 +210,8 @@ work — see
 
 ## `-race`: because polling and publishing are concurrent
 
-`go test ./... -race` runs the same suite with Go's race detector attached,
-and CI runs it as a separate, required pass alongside `make check`. This
+`make check` runs the suite with Go's race detector attached — there is no
+separate non-race pass, because a race-enabled run proves strictly more. This
 matters here specifically because poll loops and the publisher are not
 incidentally concurrent — each configured device polls on its own timer in
 its own goroutine, and the publisher drains a shared event channel while

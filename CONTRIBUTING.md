@@ -26,7 +26,7 @@ and PRs that fight them will be asked to restructure rather than merged:
 ## The gate
 
 ```
-make check    # vet + tests + boundary lint — exactly what CI runs
+make check    # vet + golangci-lint + tidy + race tests + boundary/docs lints — exactly what CI runs
 ```
 
 ## Contributing a vendor adapter
@@ -51,8 +51,8 @@ is the canonical step-by-step guide; the contract it implements:
 
 [`.claude/skills/review-adapter-contribution/SKILL.md`](.claude/skills/review-adapter-contribution/SKILL.md)
 is the maintainer-side checklist for an adapter PR. It is plain markdown and
-it is not a secret — read it before opening the PR. The machine checks are
-`make check` and `go test ./... -race`; that document covers everything those
+it is not a secret — read it before opening the PR. The machine check is
+`make check`, which runs the suite under the race detector; that document covers everything those
 cannot see, including fixture provenance, absence-of-evidence handling, and
 which files an adapter contribution should and should not touch.
 

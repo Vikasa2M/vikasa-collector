@@ -98,7 +98,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// shutdown arrived has already taken a real reading off a real device, and
 	// cancelling its publish would throw that reading away. pubCtx outlives ctx
 	// by a bounded drain (below) so those land.
-	pubCtx, cancelPub := context.WithCancel(context.Background())
+	pubCtx, cancelPub := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelPub()
 
 	sink := func(events []model.Event) {

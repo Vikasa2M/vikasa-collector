@@ -51,7 +51,7 @@ near-neighbour. A visible drop beats a wrong value on the bus.
 ## Run
 
 ```bash
-make check    # vet + tests + boundary lint — the CI gate
+make check    # vet + golangci-lint + tidy + race tests + boundary/docs lints — the CI gate
 make dev      # run the whole pipeline locally: embedded NATS, synthetic device
 ```
 

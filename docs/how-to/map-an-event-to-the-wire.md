@@ -171,10 +171,10 @@ go test ./... -race
 gofmt -l .
 ```
 
-`make check` runs `go vet`, the full suite, and
-`scripts/lint-boundary.sh` — the same gate that fails the build if
+`make check` runs `go vet`, golangci-lint, the full suite under the race
+detector, and `scripts/lint-boundary.sh` — the same gate that fails the build if
 anything outside `internal/wire` reaches for an openits-models type.
-`go test ./... -race` matters here because emitters are called
+The race detector matters here because emitters are called
 concurrently, one goroutine per polled device — `TestEncode_SequenceIsSafeUnderConcurrentDevices`
 (`internal/wire/openits/emitter_test.go`) exists specifically to exercise
 that. `gofmt -l .` should print nothing.

@@ -12,9 +12,10 @@ than restating it.
 
 ## Any change
 
-- `make check` (vet + tests + boundary lint) passes.
-- `go test ./... -race` passes. Poll loops are concurrent; a race here is a
-  real bug, not flakiness.
+- `make check` passes: vet, golangci-lint (gofmt included), tidy and
+  checksum verification, the test suite under the race detector, and the
+  boundary and docs lints. Poll loops are concurrent; a race here is a real
+  bug, not flakiness.
 
 ## A new differ
 
