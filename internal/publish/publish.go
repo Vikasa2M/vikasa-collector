@@ -116,7 +116,7 @@ func (p *Publisher) Publish(ctx context.Context, env cloudevents.Envelope, ceTyp
 	msg := &nats.Msg{Subject: subj, Data: env.Data, Header: Headers(env)}
 
 	var lastErr error
-	for attempt := 0; attempt < publishAttempts; attempt++ {
+	for attempt := range publishAttempts {
 		if attempt > 0 {
 			select {
 			case <-time.After(publishBackoff):

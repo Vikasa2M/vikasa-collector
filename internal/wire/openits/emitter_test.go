@@ -2,6 +2,7 @@ package openits
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -196,12 +197,12 @@ func TestEncode_SequenceIsSafeUnderConcurrentDevices(t *testing.T) {
 
 	var wg sync.WaitGroup
 	seen := make([][]uint64, devices)
-	for d := 0; d < devices; d++ {
+	for d := range devices {
 		wg.Add(1)
 		go func(d int) {
 			defer wg.Done()
 			id := fmt.Sprintf("asc-%d", d)
-			for i := 0; i < perDevice; i++ {
+			for range perDevice {
 				enc, ok, err := em.Encode(model.ModeChanged{
 					Base: base(id, "asc"), From: model.ModeFlash, To: model.ModeNormal,
 				})
@@ -221,9 +222,9 @@ func TestEncode_SequenceIsSafeUnderConcurrentDevices(t *testing.T) {
 	wg.Wait()
 
 	// Each device must see exactly 1..perDevice with no gaps or repeats.
-	for d := 0; d < devices; d++ {
+	for d := range devices {
 		got := append([]uint64(nil), seen[d]...)
-		sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+		slices.Sort(got)
 		for i, v := range got {
 			if v != uint64(i+1) {
 				t.Fatalf("device %d: sequence[%d] = %d, want %d (gap or duplicate)", d, i, v, i+1)
