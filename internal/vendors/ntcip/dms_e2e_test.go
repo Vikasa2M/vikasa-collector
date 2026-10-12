@@ -2,8 +2,10 @@ package ntcip
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -140,29 +142,16 @@ func (s *scriptedDMS) GetAll(_ context.Context, oids []string) (snmp.Values, err
 	defer s.mu.Unlock()
 	// Two Gets per Read (status then env). Advance the poll counter on the
 	// status Get so env sees the same poll's values.
-	isStatus := false
-	for _, oid := range oids {
-		if oid == oidDMSControlMode {
-			isStatus = true
-			break
-		}
-	}
+	isStatus := slices.Contains(oids, oidDMSControlMode)
 	if isStatus {
 		s.polls++
 	}
-	poll := s.polls
-	if poll < 1 {
-		poll = 1
-	}
+	poll := max(s.polls, 1)
 
 	ints := map[string]int64{}
 	octets := map[string][]byte{}
-	for k, v := range healthyDMSInts {
-		ints[k] = v
-	}
-	for k, v := range healthyDMSOctets {
-		octets[k] = v
-	}
+	maps.Copy(ints, healthyDMSInts)
+	maps.Copy(octets, healthyDMSOctets)
 	if poll >= 2 {
 		ints[oidDMSControlMode] = 2 // local
 		ints[oidDMSMsgSourceMode] = 2

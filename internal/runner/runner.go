@@ -10,7 +10,7 @@ package runner
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/synth"
@@ -34,9 +34,14 @@ type Runner struct {
 	consecutiveFailures int
 }
 
-// New builds a Runner. timeout==0 defaults to interval.
+// New builds a Runner. timeout==0 defaults to interval. A non-positive
+// interval panics, as time.NewTicker does: config.Load rejects one at boot,
+// so reaching here with it is a programming error, not an operator one.
 func New(dev adapter.StateReader, deviceID string, interval, timeout time.Duration,
 	engine *synth.Engine, out func([]model.Event)) *Runner {
+	if interval <= 0 {
+		panic(fmt.Sprintf("runner.New: non-positive poll interval %v for device %s", interval, deviceID))
+	}
 	if timeout <= 0 {
 		timeout = interval
 	}
@@ -48,7 +53,7 @@ func New(dev adapter.StateReader, deviceID string, interval, timeout time.Durati
 		interval:   interval, timeout: timeout,
 		engine: engine, out: out,
 		now:    time.Now,
-		jitter: func(d time.Duration) time.Duration { return time.Duration(rand.Int63n(int64(d))) },
+		jitter: rand.N[time.Duration],
 	}
 }
 

@@ -9,6 +9,7 @@ package subject
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -243,10 +244,8 @@ func decompose(ceType string) (namespace, service, event, version string, err er
 	if len(parts) != 4 {
 		return "", "", "", "", fmt.Errorf("subject: ce-type %q must be <namespace>.<service>.<event>.<version>", ceType)
 	}
-	for _, p := range parts {
-		if p == "" {
-			return "", "", "", "", fmt.Errorf("subject: ce-type %q has an empty token", ceType)
-		}
+	if slices.Contains(parts, "") {
+		return "", "", "", "", fmt.Errorf("subject: ce-type %q has an empty token", ceType)
 	}
 	return parts[0], parts[1], parts[2], parts[3], nil
 }
@@ -353,7 +352,7 @@ func (t *Template) ValidateCETypes(ceTypes []string, deviceIDs []string) error {
 			if err != nil {
 				return fmt.Errorf("subject: template %q cannot render ce-type %q: %w", t.raw, ceType, err)
 			}
-			for _, tok := range strings.Split(subj, ".") {
+			for tok := range strings.SplitSeq(subj, ".") {
 				if !isLegalToken(tok) {
 					return fmt.Errorf("subject: ce-type %q with device %q renders to %q, which has an illegal token %q", ceType, id, subj, tok)
 				}
