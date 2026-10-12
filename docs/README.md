@@ -75,55 +75,37 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 
 ### The code does not meet a bar the docs correctly state
 
-**The `openits` emitter has no catalog-conformance check.**
-`internal/wire/openits/golden_test.go`'s `TestGoldensCoverEveryCEType` reads
-like a conformance test and is not one: it iterates `New("x").CETypes()`,
-and `CETypes()` (`internal/wire/openits/emitter.go`) is derived from the
-emitter's own local `ceTypeFor` routing table. It therefore proves the golden
-set keeps up with the mapping, and nothing about whether the mapping keeps up
-with the pinned openits-models catalog. A ce-type the pinned release declares
-but the emitter never mapped is invisible to every check in this repo.
-`internal/wire/health/conformance_test.go` is the shape to copy — it compares
-the health emitter's `CETypes()` against an external document (`asyncapi.yaml`)
-in both directions, failing both on an emittable type with no channel and on
-a documented channel nothing can emit. *Closing it:* build the equivalent for
-`internal/wire/openits`, reading the pinned release's own
-`bindings/nats/asyncapi.yaml` from the module cache and asserting both
-directions. Evidence: ledger `:1165-1180`, `:3210`.
-
-**46 catalog ce-types are declared upstream and unmapped, 17 of them in
-services the collector already serves.** [ADR 0016](adr/0016-collector-as-transitional-shim.md)
+**49 catalog ce-types are declared upstream and unmapped, 3 of them owed
+in services the collector already serves.** [ADR 0016](adr/0016-collector-as-transitional-shim.md)
 makes this a *collector* gap by definition: the collector adapts to the
 catalog, so a ce-type the pinned release declares and `internal/wire/openits`
 never mapped is work owed here, not evidence the catalog is wrong. Against
-the v0.3.0 pin the emitter maps 26 of the catalog's 72 ce-types. Most of the
-remainder belong to services the collector does not model at all — `ess`,
-`ramp-metering`, `reversible-lane`, `rsu` — and are blocked on a domain
-facet and an adapter, not on a mapping. The 17 that are not so blocked sit in
-services already wired end to end:
+the v0.5.0 pin the emitter maps 28 of the catalog's 77 ce-types.
 
-- `openits.traffic-sensor.traffic-sensor-status-report.v1` and
-  `openits.traffic-sensor.queue-state-changed.v1`
-- three `openits.cctv.*` command/lockout events
-  (`ptz-move-commanded`, `ptz-preset-recalled`, `lockout-denied`)
-- twelve `openits.signal-control.*` events — phase, overlap, pedestrian,
-  coordination, detector-transition, comm-health, TSP and TSAM
+The live list is not this paragraph: it is the `unmapped` allowlist in
+`internal/wire/openits/catalog_test.go`, which the catalog-conformance
+tests keep exact against the pinned release — a newly declared ce-type
+fails CI until it is mapped or allowlisted, and an entry that is mapped or
+no longer declared fails as stale. Each entry carries one of four reasons:
 
-Those three groups are not one task. The CCTV ones describe *commands*, and
-nothing in the collector commands anything (`sdk/adapter.Commander` has no
-dispatch path, the same shape as the `EventReader` gap below). Most of the
-signal-control ones are high-rate per-cycle events an SNMP poller structurally
-cannot observe — they want a controller pushing, which is the end state
-[ADR 0016](adr/0016-collector-as-transitional-shim.md) expects to make the
-collector unnecessary. `traffic-sensor-status-report` is the one ADR 0016
-names explicitly and the most tractable: it is a periodic state report for a
-device kind already modelled, differed and published.
+- **service not modelled** (31) — `ess`, `ramp-metering`,
+  `reversible-lane`, `rsu`, `work-zone`: blocked on a domain facet and an
+  adapter, not on a mapping.
+- **describes a command** (3) — the `openits.cctv.*` PTZ and lockout
+  events. Nothing in the collector commands anything
+  (`sdk/adapter.Commander` has no dispatch path, the same shape as the
+  `EventReader` gap below).
+- **signal control, not yet assessed per event** (12) — most are high-rate
+  per-cycle events an SNMP poller structurally cannot observe; they want a
+  controller pushing, which is the end state ADR 0016 expects to make the
+  collector unnecessary. Each needs an individual verdict.
+- **owed** (3) — `traffic-sensor-status-report`, `queue-state-changed`
+  and `zone-occupancy-changed`, in services already wired end to end.
 
 *Closing it:* per ce-type, not in bulk — each needs the domain event, the
-`ceTypeFor` entry, the `Encode` case and a golden. Start with
-`traffic-sensor-status-report`. The reason the list has to be recomputed by
-hand rather than read off a check is the entry above: there is no
-catalog-conformance test, so nothing tells you when this list changes.
+`ceTypeFor` entry, the `Encode` case, a golden, and deleting its
+`unmapped` line. Start with `traffic-sensor-status-report`, the one ADR
+0016 names explicitly.
 
 **Four of the nine registered differs have no failed-read test.** The
 absence-of-evidence rule (ADR 0013) is proven for the signal, fault, detector

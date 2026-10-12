@@ -254,18 +254,12 @@ the catalog: it proves the goldens keep up with the mapping, and nothing
 about whether the mapping keeps up with the catalog. A ce-type the pinned
 release declares but the emitter never mapped is invisible to it.
 
-There is no catalog-conformance check for the `openits` emitter today.
-`internal/wire/health` does have one — `conformance_test.go` compares the
-health emitter's `CETypes()` against an external document (`asyncapi.yaml`)
-in both directions, failing on an emittable type with no channel *and* on a
-documented channel nothing can emit. The emitter whose ce-types actually
-come from an externally-versioned catalog is the one without that check.
-Building the equivalent against the pinned release's own
-`bindings/nats/asyncapi.yaml` is successor work; see
-[the gap list](../README.md#known-gaps-and-successor-work), whose first
-entry is this finding in full — the audit ledger that originally recorded
-it no longer lives in this repository (that section says how to retrieve it
-from history).
+The catalog itself is checked separately:
+`internal/wire/openits/catalog_test.go` compares the emitter's `CETypes()`
+against the pinned release's own `bindings/nats/asyncapi.yaml` in both
+directions, with an `unmapped` allowlist (each entry carrying a reason) for
+catalog ce-types the emitter consciously does not produce. See
+[`testing-strategy.md`'s catalog-conformance section](../explanation/testing-strategy.md#the-catalog-conformance-check).
 
 ## No fixtures, no merge
 
