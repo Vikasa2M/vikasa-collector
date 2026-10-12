@@ -27,8 +27,24 @@ import (
 // elapses when the broker is genuinely unreachable.
 const drainTimeout = 5 * time.Second
 
+// Options carries what Run needs beyond the validated config and registry.
+type Options struct {
+	// NATSURL is the cabinet-local broker.
+	NATSURL string
+	// Version is stamped into collector-started.
+	Version string
+	// Logger receives every line the collector writes. Nil means
+	// slog.Default(); main always sets it, so its flags decide format and
+	// level.
+	Logger *slog.Logger
+}
+
 // Run starts the collector and blocks until ctx is cancelled.
-func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL, version string) error {
+func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Options) error {
+	log := opts.Logger
+	if log == nil {
+		log = slog.Default()
+	}
 	tenant := cfg.Tenant()
 
 	// Emitter chain: first claim wins. openits goes first so catalog events
@@ -66,13 +82,13 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 	// no collector-started has gone out, and the adapters already built are
 	// closed. Building inside the runner-start loop left devices ahead of
 	// the broken one polling against a publisher Run was about to close.
-	readers, err := buildReaders(cfg.Devices, reg)
+	readers, err := buildReaders(log, cfg.Devices, reg)
 	if err != nil {
 		return err
 	}
-	defer closeAll(readers)
+	defer closeAll(log, readers)
 
-	pub, err := publish.Connect(ctx, natsURL, tmpl, ceTypes)
+	pub, err := publish.Connect(ctx, opts.NATSURL, tmpl, ceTypes)
 	if err != nil {
 		return err
 	}
@@ -87,13 +103,13 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 
 	sink := func(events []model.Event) {
 		for _, ev := range events {
-			encodeAndPublish(pubCtx, pub, tenant, emitters, ev)
+			encodeAndPublish(pubCtx, log, pub, tenant, emitters, ev)
 		}
 	}
 
 	// Boot event.
 	sink([]model.Event{model.CollectorStarted{
-		Base: model.Base{OccurredAt: time.Now().UTC()}, Version: version,
+		Base: model.Base{OccurredAt: time.Now().UTC()}, Version: opts.Version,
 	}})
 
 	engine := synth.NewEngine(
@@ -130,18 +146,18 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 // buildReaders builds one StateReader per device, in config order. On any
 // failure it closes what it already built, so the caller owns either every
 // reader or none.
-func buildReaders(devices []config.Device, reg *adapter.Registry) ([]adapter.StateReader, error) {
+func buildReaders(log *slog.Logger, devices []config.Device, reg *adapter.Registry) ([]adapter.StateReader, error) {
 	readers := make([]adapter.StateReader, 0, len(devices))
 	for _, d := range devices {
 		a, err := reg.Build(d.Vendor, d.DeviceKind, d.ID, d.Connection)
 		if err != nil {
-			closeAll(readers)
+			closeAll(log, readers)
 			return nil, fmt.Errorf("device %s: %w", d.ID, err)
 		}
 		sr, ok := a.(adapter.StateReader)
 		if !ok {
 			_ = a.Close()
-			closeAll(readers)
+			closeAll(log, readers)
 			return nil, fmt.Errorf("device %s: adapter %s lacks CapState", d.ID, a.Descriptor().Key())
 		}
 		readers = append(readers, sr)
@@ -149,20 +165,20 @@ func buildReaders(devices []config.Device, reg *adapter.Registry) ([]adapter.Sta
 	return readers, nil
 }
 
-func closeAll(readers []adapter.StateReader) {
+func closeAll(log *slog.Logger, readers []adapter.StateReader) {
 	for _, r := range readers {
 		if err := r.Close(); err != nil {
-			slog.Warn("adapter close", "adapter", r.Descriptor().Key(), "err", err)
+			log.Warn("adapter close", "adapter", r.Descriptor().Key(), "err", err)
 		}
 	}
 }
 
-func encodeAndPublish(ctx context.Context, pub *publish.Publisher, tenant cloudevents.Tenant,
+func encodeAndPublish(ctx context.Context, log *slog.Logger, pub *publish.Publisher, tenant cloudevents.Tenant,
 	emitters []wire.Emitter, ev model.Event) {
 	for _, em := range emitters {
 		enc, ok, err := em.Encode(ev)
 		if err != nil {
-			slog.Error("emit failed", "event", ev.EventKind(), "err", err)
+			log.Error("emit failed", "event", ev.EventKind(), "device", ev.EventDeviceID(), "err", err)
 			return
 		}
 		if !ok {
@@ -174,7 +190,7 @@ func encodeAndPublish(ctx context.Context, pub *publish.Publisher, tenant cloude
 			// mean inventing a URN shape upstream does not define, and ce-id
 			// hashes that string, so the invention would be baked into every
 			// id. Drop it as loudly as an unclaimed event.
-			slog.Warn("event dropped: no ce-source entity kind for device kind",
+			log.Warn("event dropped: no ce-source entity kind for device kind",
 				"event", ev.EventKind(), "device_kind", ev.EventDeviceKind(), "device", ev.EventDeviceID())
 			return
 		}
@@ -188,7 +204,7 @@ func encodeAndPublish(ctx context.Context, pub *publish.Publisher, tenant cloude
 			Identity:    enc.Identity,
 		})
 		if err := pub.Publish(ctx, env, enc.CEType, ev.EventDeviceID()); err != nil {
-			slog.Error("publish failed", "type", enc.CEType, "err", err)
+			log.Error("publish failed", "type", enc.CEType, "device", ev.EventDeviceID(), "err", err)
 		}
 		return
 	}
@@ -198,6 +214,6 @@ func encodeAndPublish(ctx context.Context, pub *publish.Publisher, tenant cloude
 	// means a real mapping gap — an event kind with no ce-type, or one the
 	// openits emitter declined because it could not encode it faithfully —
 	// rather than the chain simply being unwired.
-	slog.Warn("event dropped: no emitter for domain event",
+	log.Warn("event dropped: no emitter for domain event",
 		"event", ev.EventKind(), "device", ev.EventDeviceID())
 }

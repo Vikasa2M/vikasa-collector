@@ -105,7 +105,7 @@ devices:
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	go func() { _ = Run(ctx, cfg, reg, ns.ClientURL(), "test") }()
+	go func() { _ = Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
 
 	want := map[string]bool{
 		"openits-collector.health.collector-started.v1":     false,
@@ -172,7 +172,7 @@ func TestRunRejectsUnparseableSubjectTemplate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := Run(ctx, cfg, reg, ns.ClientURL(), "test"); err == nil {
+	if err := Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}); err == nil {
 		t.Fatal("Run must refuse to start on a template it cannot render")
 	}
 }
@@ -194,9 +194,7 @@ func TestRunRejectsUnparseableSubjectTemplate(t *testing.T) {
 // real data.
 func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(old)
+	log := slog.New(slog.NewTextHandler(&buf, nil))
 
 	// Only the health emitter is wired, so a domain event finds no claimant.
 	emitters := []wire.Emitter{health.NewHealthEmitter()}
@@ -206,7 +204,7 @@ func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	}
 	// pub is nil: safe, because the drop path returns before touching the
 	// publisher.
-	encodeAndPublish(context.Background(), nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
+	encodeAndPublish(context.Background(), log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
 
 	got := buf.String()
 	if !strings.Contains(got, "event dropped") {
@@ -215,5 +213,41 @@ func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	// The log must identify what was lost, or it is not actionable.
 	if !strings.Contains(got, "operational-status-report") || !strings.Contains(got, "asc-1") {
 		t.Errorf("drop log must name the event kind and device; got: %q", got)
+	}
+}
+
+// failingEmitter claims nothing and fails every encode.
+type failingEmitter struct{}
+
+func (failingEmitter) Encode(model.Event) (*wire.Encoded, bool, error) {
+	return nil, false, errors.New("boom")
+}
+func (failingEmitter) CETypes() []string { return nil }
+
+// The app logs through the logger it was given, never the process global:
+// that is what lets main choose format and level, and lets a test (or a
+// second collector in one process) see only its own lines. Every failure
+// line names the device, or an operator cannot tell which cabinet input
+// it was about.
+func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
+	var global bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&global, nil)))
+	defer slog.SetDefault(old)
+
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	ev := model.OperationalStatusReport{
+		Base: model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
+		Mode: model.ModeNormal,
+	}
+	encodeAndPublish(context.Background(), log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
+		[]wire.Emitter{failingEmitter{}}, ev)
+
+	if got := buf.String(); !strings.Contains(got, "emit failed") || !strings.Contains(got, "device=asc-1") {
+		t.Fatalf("injected logger got %q; want an emit-failed line naming device=asc-1", got)
+	}
+	if global.Len() != 0 {
+		t.Fatalf("app wrote to the global logger: %q", global.String())
 	}
 }

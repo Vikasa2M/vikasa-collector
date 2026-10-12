@@ -13,15 +13,24 @@ YAML document in the file, fails boot rather than being ignored.
 
 ## The command line
 
-`collector.yaml` is not the whole configuration surface. Three flags are
-parsed by `cmd/collector/main.go`, and one of them — the broker address —
-has no YAML equivalent at all:
+`collector.yaml` is not the whole configuration surface. Five flags are
+parsed by `cmd/collector/main.go`, and none of them has a YAML equivalent:
+they describe where and how this process runs, not the tenant or device
+inventory.
 
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
-| `-config` | path | — | Path to `collector.yaml`. **Required**; the binary exits 2 without it. |
+| `-config` | path | — | Path to `collector.yaml`. **Required**. |
 | `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed straight to `publish.Connect`, which dials it and provisions every stream during boot. |
-| `-version` | bool | `false` | Print the build version and exit. Set at build time via `-ldflags "-X main.version=..."`; an unstamped build prints `dev`. |
+| `-log-level` | `debug` \| `info` \| `warn` \| `error` | `info` | Minimum level written. Case-insensitive. |
+| `-log-format` | `text` \| `json` | `text` | `text` is slog's `key=value` lines; `json` is one object per line, for a log shipper. |
+| `-version` | bool | `false` | Print the build version and exit. Set at build time via `-ldflags "-X main.version=..."`; without a stamp, a `go install …@vX.Y.Z` build prints its module version and a local build prints `dev`. |
+
+Logs go to stderr; `-version` goes to stdout. Exit codes separate who has to
+fix the problem: **2** means the command line itself is wrong (a missing
+`-config`, an unknown flag, or an unrecognized `-log-level` or
+`-log-format` value — rejected at boot, never defaulted); **1** means the
+config or the runtime failed; **0** is a clean shutdown or `-version`.
 
 `-nats` defaults to loopback because the collector and the broker are
 expected to be co-resident in the cabinet (ADR 0011's cabinet-local

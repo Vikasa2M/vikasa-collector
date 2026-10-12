@@ -108,7 +108,7 @@ applied to the adapter's own `connection` block.
 **Scope creep.** An adapter contribution should touch:
 
 - `internal/vendors/<vendor>/<kind>.go` and its test — new files
-- one line in `RegisterAdapters` (`cmd/collector/main.go`)
+- one line in `RegisterAdapters` (`cmd/collector/adapters.go`)
 - optionally `collector.yaml`'s example
 
 Anything else deserves a question. Changes to `sdk/model`, `internal/synth`,

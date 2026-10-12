@@ -20,7 +20,7 @@ cover. Have them open.
 **What your PR should touch, and nothing else:**
 
 - `internal/vendors/<vendor>/<kind>.go` and its test — new files
-- one line in `RegisterAdapters` (`cmd/collector/main.go`)
+- one line in `RegisterAdapters` (`cmd/collector/adapters.go`)
 - optionally an example entry in `collector.yaml`
 
 Knowing this up front saves the most review time of anything on this page.
@@ -179,7 +179,7 @@ Two pieces, both covered in depth by
 a `RegisterTo(r *adapter.Registry)` function in your new
 `internal/vendors/<vendor>/register.go` that calls `r.Register` with your
 `Descriptor` and a factory closure, and one added line in
-`RegisterAdapters` (`cmd/collector/main.go`). `internal/app` takes no part
+`RegisterAdapters` (`cmd/collector/adapters.go`). `internal/app` takes no part
 in this — it only ever receives an already-populated `*adapter.Registry`.
 
 Lay the package out the way `ntcip` actually is: `internal/vendors/<vendor>/<kind>.go`

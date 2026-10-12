@@ -61,7 +61,7 @@ It does not apply to:
 6. Set `Descriptor.Caps` to exactly the interfaces your type implements —
    nothing claimed that isn't real, even if it would compile.
 7. Register: a `RegisterTo(r *adapter.Registry)` in your new package, plus
-   one added line in `RegisterAdapters` (`cmd/collector/main.go`).
+   one added line in `RegisterAdapters` (`cmd/collector/adapters.go`).
    `internal/app` takes no part in this.
 8. Write fixtures and golden tests to the bar in
    `docs/reference/test-requirements.md`'s "A new adapter" section, with a
