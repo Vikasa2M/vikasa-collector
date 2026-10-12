@@ -61,6 +61,17 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 		return err
 	}
 
+	// Every adapter is built before anything is announced or started, so a
+	// device that cannot be built fails boot cleanly: no runner is polling,
+	// no collector-started has gone out, and the adapters already built are
+	// closed. Building inside the runner-start loop left devices ahead of
+	// the broken one polling against a publisher Run was about to close.
+	readers, err := buildReaders(cfg.Devices, reg)
+	if err != nil {
+		return err
+	}
+	defer closeAll(readers)
+
 	pub, err := publish.Connect(ctx, natsURL, tmpl, ceTypes)
 	if err != nil {
 		return err
@@ -85,7 +96,6 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 		Base: model.Base{OccurredAt: time.Now().UTC()}, Version: version,
 	}})
 
-	// Build adapters, then runners.
 	engine := synth.NewEngine(
 		synth.NewSignalDiffer(),
 		synth.NewFaultDiffer(),
@@ -98,23 +108,9 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 		synth.NewCCTVDiffer(),
 	)
 	var wg sync.WaitGroup
-	var adapters []adapter.Adapter
-	for _, d := range cfg.Devices {
-		a, err := reg.Build(d.Vendor, d.DeviceKind, d.ID, d.Connection)
-		if err != nil {
-			return fmt.Errorf("device %s: %w", d.ID, err)
-		}
-		adapters = append(adapters, a)
-		sr, ok := a.(adapter.StateReader)
-		if !ok {
-			return fmt.Errorf("device %s: adapter %s lacks CapState", d.ID, a.Descriptor().Key())
-		}
-		r := runner.New(sr, d.ID, d.PollInterval, 0, engine, sink)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			r.Run(ctx)
-		}()
+	for i, d := range cfg.Devices {
+		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink)
+		wg.Go(func() { r.Run(ctx) })
 	}
 
 	<-ctx.Done()
@@ -128,12 +124,37 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, natsURL
 	drain.Stop()
 	cancelPub()
 
-	for _, a := range adapters {
-		if err := a.Close(); err != nil {
-			slog.Warn("adapter close", "adapter", a.Descriptor().Key(), "err", err)
+	return nil
+}
+
+// buildReaders builds one StateReader per device, in config order. On any
+// failure it closes what it already built, so the caller owns either every
+// reader or none.
+func buildReaders(devices []config.Device, reg *adapter.Registry) ([]adapter.StateReader, error) {
+	readers := make([]adapter.StateReader, 0, len(devices))
+	for _, d := range devices {
+		a, err := reg.Build(d.Vendor, d.DeviceKind, d.ID, d.Connection)
+		if err != nil {
+			closeAll(readers)
+			return nil, fmt.Errorf("device %s: %w", d.ID, err)
+		}
+		sr, ok := a.(adapter.StateReader)
+		if !ok {
+			_ = a.Close()
+			closeAll(readers)
+			return nil, fmt.Errorf("device %s: adapter %s lacks CapState", d.ID, a.Descriptor().Key())
+		}
+		readers = append(readers, sr)
+	}
+	return readers, nil
+}
+
+func closeAll(readers []adapter.StateReader) {
+	for _, r := range readers {
+		if err := r.Close(); err != nil {
+			slog.Warn("adapter close", "adapter", r.Descriptor().Key(), "err", err)
 		}
 	}
-	return nil
 }
 
 func encodeAndPublish(ctx context.Context, pub *publish.Publisher, tenant cloudevents.Tenant,

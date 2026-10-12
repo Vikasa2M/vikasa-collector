@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,5 +292,40 @@ func TestLoadAcceptsValidCollectorID(t *testing.T) {
 	}
 	if cfg.CollectorID != "cabinet-042-collector_1" {
 		t.Fatalf("CollectorID = %q", cfg.CollectorID)
+	}
+}
+
+// TestLoadRejectsUnrecognizedKeys pins ADR 0014's "boot fails on the
+// unrecognized": a misspelled key must not be dropped in favour of a default.
+// The poll_intreval case is the dangerous one — before strict decoding it
+// booted fine and polled at the 5s default the operator never asked for.
+func TestLoadRejectsUnrecognizedKeys(t *testing.T) {
+	cases := map[string]string{
+		"top-level typo":    validYAML + "colector_id: x\n",
+		"device-level typo": strings.Replace(validYAML, "poll_interval: 1s", "poll_intreval: 1s", 1),
+		"subject typo":      validYAML + "subject: { tempalte: \"{namespace}.{region}\" }\n",
+	}
+	for name, yaml := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, yaml), regWith("ntcip", "asc"))
+			if err == nil || !strings.Contains(err.Error(), "not found") {
+				t.Fatalf("Load() error = %v, want an unknown-field error", err)
+			}
+		})
+	}
+}
+
+// A second YAML document is content the collector would otherwise ignore
+// without a word — the operator edited it believing it took effect.
+func TestLoadRejectsTrailingDocument(t *testing.T) {
+	yaml := validYAML + "---\ncollector_id: other\n"
+	if _, err := Load(write(t, yaml), regWith("ntcip", "asc")); err == nil {
+		t.Fatal("Load() accepted a config with a second YAML document")
+	}
+}
+
+func TestLoadRejectsEmptyFile(t *testing.T) {
+	if _, err := Load(write(t, ""), regWith("ntcip", "asc")); err == nil {
+		t.Fatal("Load() accepted an empty config")
 	}
 }

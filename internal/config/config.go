@@ -4,7 +4,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"time"
@@ -93,12 +96,37 @@ func Load(path string, reg *adapter.Registry) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	var cfg Config
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	cfg, err := decode(raw)
+	if err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 	if err := cfg.validate(reg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
+	}
+	return cfg, nil
+}
+
+// decode is strict where yaml.Unmarshal is lenient: an unknown key is an
+// error rather than silently dropped, and so is a second document. Either
+// would otherwise boot on a config that differs from what the operator
+// wrote — a misspelled poll_interval polls at the default — which is
+// exactly the publish-time surprise ADR 0014 moves to boot.
+//
+// connection blocks stay map[string]any, so this does not reach inside
+// them; each adapter rejects its own unrecognized keys.
+func decode(raw []byte) (*Config, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	var cfg Config
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, errors.New("empty config")
+		}
+		return nil, err
+	}
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return nil, errors.New("multiple YAML documents; expected exactly one")
 	}
 	return &cfg, nil
 }
