@@ -72,8 +72,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	info, _ := debug.ReadBuildInfo()
 	ver := resolveVersion(version, info)
 	if *showVersion {
-		fmt.Fprintln(stdout, ver)
-		return nil
+		_, err := fmt.Fprintln(stdout, ver)
+		return err
 	}
 	if *cfgPath == "" {
 		return usageError{errors.New("-config is required")}

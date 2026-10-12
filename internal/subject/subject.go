@@ -169,7 +169,7 @@ func parseTokens(raw string, vars map[string]string) ([]token, error) {
 			continue
 		}
 		// A placeholder sharing a token with other text leaves the binding no
-		// boundary to truncate on (see deriveBinding).
+		// boundary to truncate on (see Template.bindingFor).
 		if opens > 1 || !strings.HasPrefix(p, "{") || !strings.HasSuffix(p, "}") {
 			return nil, fmt.Errorf("subject: template %q token %q must be a literal or a single whole-token placeholder like {service}", raw, p)
 		}
@@ -380,27 +380,4 @@ func withinBinding(subj, binding string) bool {
 		return strings.HasPrefix(subj, strings.TrimSuffix(binding, ">"))
 	}
 	return subj == binding
-}
-
-// deriveBinding substitutes instance-constants and truncates at the first
-// per-event token, because a JetStream stream needs a static subject filter.
-func deriveBinding(toks []token) (string, error) {
-	var prefix []string
-	for _, tok := range toks {
-		if tok.perEventVar != "" {
-			break
-		}
-		prefix = append(prefix, tok.literal)
-	}
-	if len(prefix) == 0 {
-		return "", fmt.Errorf("subject: template has no static prefix — its leftmost token varies per event, " +
-			"so the stream binding would be \">\" and would capture every subject on the server. " +
-			"Put constant tokens (agency, site, a prefix) leftmost")
-	}
-	if len(prefix) == len(toks) {
-		// No per-event tokens at all: every event renders the same subject.
-		// Legal, if odd; bind it exactly rather than with a wildcard.
-		return strings.Join(prefix, "."), nil
-	}
-	return strings.Join(prefix, ".") + ".>", nil
 }

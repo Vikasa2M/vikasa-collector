@@ -303,7 +303,7 @@ func TestLoadRejectsUnrecognizedKeys(t *testing.T) {
 	cases := map[string]string{
 		"top-level typo":    validYAML + "colector_id: x\n",
 		"device-level typo": strings.Replace(validYAML, "poll_interval: 1s", "poll_intreval: 1s", 1),
-		"subject typo":      validYAML + "subject: { tempalte: \"{namespace}.{region}\" }\n",
+		"subject typo":      validYAML + "subject: { tempalte: \"{namespace}.{region}\" }\n", //nolint:misspell // the misspelling is the test input
 	}
 	for name, yaml := range cases {
 		t.Run(name, func(t *testing.T) {
