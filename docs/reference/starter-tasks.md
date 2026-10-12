@@ -91,12 +91,9 @@ device, a cabinet, or a broker — `make check` is the whole feedback loop.
 |---|---|---|
 | **Four missing failed-read differ tests** | The absence-of-evidence rule (ADR 0013) is proven for the signal, fault, detector and DMS differs and for no others. CCTV, traffic-interval, zone-incident and zone-interval have no test driving a failed read through. `Engine.Apply` gates all eight in shared code, so the blast radius is likely small — but an untested invariant is untested. | `TestDMSFailedReadEmitsNothing` (`internal/synth/dms_test.go`) |
 | **The signal differ's axis-independence test** | `TestTransitionsEmitChangeEvents` (`internal/synth/signal_test.go`) moves mode, plan and preemption in one poll and only asserts the expected event is *present*, never that the others are *absent*. This is the differ behind the collector's only shipped adapter. | `TestDMSAxesChangeIndependently` (`internal/synth/dms_test.go`) — move one axis, assert an exact event count, repeat per axis |
-| **A catalog-conformance check for the `openits` emitter** | `TestGoldensCoverEveryCEType` reads like a conformance test and is not one — it checks the emitter's mapping table against itself. Nothing compares it to the pinned openits-models catalog, so a ce-type upstream declares and the emitter never mapped is invisible to every check here. This is the highest-value item on the list. | `internal/wire/health/conformance_test.go` — compares `CETypes()` against an external document in both directions |
 
-The first two are the gentler entry: small, well-bounded, and they teach the
-single most important correctness rule in the collector by making you prove
-it. The third is a genuine piece of engineering and would close a gap that
-has already caused wrong conclusions more than once.
+Both are small and well-bounded, and they teach the single most important
+correctness rule in the collector by making you prove it.
 
 Reading [`test-requirements.md`](test-requirements.md#a-new-differ) first is
 worth the ten minutes for any of them.
