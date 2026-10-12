@@ -106,7 +106,7 @@ devices:
 
 	ctx, cancel := context.WithTimeout(context.Background(), window)
 	defer cancel()
-	if err := Run(ctx, cfg, reg, ns.ClientURL(), "test"); err != nil {
+	if err := Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if err := nc.Flush(); err != nil {

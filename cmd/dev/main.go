@@ -254,7 +254,7 @@ func run(stopAfter time.Duration) error {
 
 	fmt.Println("running the real app.Run against a synthetic device — Ctrl-C to stop")
 	fmt.Println()
-	if err := app.Run(ctx, cfg, reg, ns.ClientURL(), "dev"); err != nil {
+	if err := app.Run(ctx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "dev", Logger: slog.Default()}); err != nil {
 		return err
 	}
 	return nil

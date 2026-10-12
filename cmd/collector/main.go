@@ -5,55 +5,119 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/app"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
-	"github.com/Vikasa2M/vikasa-collector/internal/vendors/ntcip"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 )
 
 var version = "dev" // set via -ldflags "-X main.version=..."
 
-// RegisterAdapters wires every compiled-in adapter into the registry. This is
-// the one place the binary decides which vendors it ships with; contributing an
-// adapter means adding a line here plus internal/vendors/<vendor>/<kind>.go.
-func RegisterAdapters(r *adapter.Registry) {
-	ntcip.RegisterTo(r)
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	err := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	os.Exit(exitCode(err))
 }
 
-func main() {
-	cfgPath := flag.String("config", "", "path to collector.yaml (required)")
-	natsURL := flag.String("nats", "nats://127.0.0.1:4222", "local NATS URL")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+// usageError marks a mistake in how the binary was invoked, as opposed to a
+// bad config or a runtime failure. It exits 2, so a supervisor can tell "the
+// unit file is wrong" from "the cabinet is wrong".
+type usageError struct{ err error }
 
+func (e usageError) Error() string { return e.err.Error() }
+func (e usageError) Unwrap() error { return e.err }
+
+func exitCode(err error) int {
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+		return 0
+	case errors.As(err, new(usageError)):
+		return 2
+	default:
+		return 1
+	}
+}
+
+// run is main without the process: flags come from args, output goes to the
+// given writers, and failure is a returned error rather than os.Exit, so the
+// whole command line is testable.
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("collector", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to collector.yaml (required)")
+	natsURL := fs.String("nats", "nats://127.0.0.1:4222", "local NATS URL")
+	logLevel := fs.String("log-level", "info", "log level: debug, info, warn, error")
+	logFormat := fs.String("log-format", "text", "log format: text, json")
+	showVersion := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return usageError{err}
+	}
+
+	info, _ := debug.ReadBuildInfo()
+	ver := resolveVersion(version, info)
 	if *showVersion {
-		fmt.Println(version)
-		return
+		fmt.Fprintln(stdout, ver)
+		return nil
 	}
 	if *cfgPath == "" {
-		fmt.Fprintln(os.Stderr, "-config is required")
-		os.Exit(2)
+		return usageError{errors.New("-config is required")}
+	}
+	log, err := newLogger(stderr, *logLevel, *logFormat)
+	if err != nil {
+		return usageError{err}
 	}
 
 	reg := adapter.NewRegistry()
 	RegisterAdapters(reg)
-
 	cfg, err := config.Load(*cfgPath, reg)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	return app.Run(ctx, cfg, reg, app.Options{NATSURL: *natsURL, Version: ver, Logger: log})
+}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := app.Run(ctx, cfg, reg, *natsURL, version); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+// newLogger builds the process logger from the -log-* flags. An unknown
+// value is a usage error at boot, not a silent fallback to the default.
+func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		return nil, fmt.Errorf("-log-level %q: want debug, info, warn or error", level)
 	}
+	opts := &slog.HandlerOptions{Level: lvl}
+	switch format {
+	case "text":
+		return slog.New(slog.NewTextHandler(w, opts)), nil
+	case "json":
+		return slog.New(slog.NewJSONHandler(w, opts)), nil
+	default:
+		return nil, fmt.Errorf("-log-format %q: want text or json", format)
+	}
+}
+
+// resolveVersion prefers the ldflags stamp, then the module version a
+// `go install pkg@vX.Y.Z` build records, and only then "dev".
+func resolveVersion(stamped string, info *debug.BuildInfo) string {
+	if stamped != "dev" || info == nil {
+		return stamped
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	return stamped
 }

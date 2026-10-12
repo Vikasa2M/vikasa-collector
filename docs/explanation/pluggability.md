@@ -119,7 +119,7 @@ construction logic.
 
 Registration is not automatic or discovered — a compiled-in adapter package
 does nothing until something imports it and calls `Register`. That
-something is `cmd/collector/main.go`'s `RegisterAdapters`:
+something is `cmd/collector/adapters.go`'s `RegisterAdapters`:
 
 ```go
 func RegisterAdapters(r *adapter.Registry) {
