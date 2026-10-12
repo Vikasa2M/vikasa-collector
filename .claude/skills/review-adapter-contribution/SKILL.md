@@ -53,9 +53,11 @@ Prove what a machine can settle, so no finding is argued when it could be
 demonstrated. Capture the real output; a review that says "tests appear to
 pass" has not run them.
 
-1. `make check` — vet, tests, the boundary lint, its two selftests, docs lint.
-2. `go test ./... -race` — poll loops and the publisher are concurrent.
-3. `gofmt -l .` — must print nothing.
+1. `make check` — vet, golangci-lint (gofmt included), tidy and checksum
+   verification, the suite under `-race` (poll loops and the publisher are
+   concurrent), the boundary lint and its selftests, docs lint.
+2. `make vuln` — govulncheck. Not a merge gate, but a reachable vulnerability
+   introduced by the adapter's dependencies is a finding.
 
 A red boundary lint is the clearest possible finding: quote its output
 verbatim. It names the offending package and import.

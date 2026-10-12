@@ -250,11 +250,12 @@ go test ./... -race
 gofmt -l .
 ```
 
-`make check` runs `go vet`, the full test suite, and `scripts/lint-boundary.sh`
+`make check` runs `go vet`, golangci-lint, the full test suite under the race
+detector, and `scripts/lint-boundary.sh`
 — the same gate CI runs and the one that will reject an adapter reaching for
 an openits-models type directly (see
 [the "Adapters and `sdk/` never import openits-models" row](../reference/invariants.md#adapters-and-sdk-never-import-openits-models)
-in `invariants.md`). `go test ./... -race` is required separately because
+in `invariants.md`). The suite runs under `-race` because
 the collector's poll loop and publisher run as concurrent goroutines — see
 [`testing-strategy.md`'s `-race` section](../explanation/testing-strategy.md#-race-because-polling-and-publishing-are-concurrent)
 for what a green run does and doesn't prove. `gofmt -l .` should print nothing;
