@@ -56,7 +56,11 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// with no upstream identity, a shared event on an unserved device kind),
 	// so the drop is the visible outcome of a mapping gap rather than evidence
 	// the chain is unwired.
-	emitters := []wire.Emitter{openits.New(cfg.CollectorID), health.NewHealthEmitter()}
+	catalog, err := catalogEmitter(cfg.ModelVersion, cfg.CollectorID)
+	if err != nil {
+		return err
+	}
+	emitters := []wire.Emitter{catalog, health.NewHealthEmitter()}
 
 	tmpl, err := subject.New(cfg.SubjectConfig(), cfg.SubjectIdentity())
 	if err != nil {
@@ -141,6 +145,19 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	cancelPub()
 
 	return nil
+}
+
+// catalogEmitter selects the catalog emitter for model_version (ADR 0005).
+// config has already rejected anything outside wire.SupportedModelVersions;
+// the error path is for a version listed there with no case here, which
+// TestEverySupportedModelVersionSelectsAnEmitter catches first.
+func catalogEmitter(modelVersion, collectorID string) (wire.Emitter, error) {
+	switch modelVersion {
+	case openits.ModelVersion:
+		return openits.New(collectorID), nil
+	default:
+		return nil, fmt.Errorf("model_version %q has no catalog emitter in this build", modelVersion)
+	}
 }
 
 // buildReaders builds one StateReader per device, in config order. On any

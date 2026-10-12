@@ -329,3 +329,14 @@ func TestLoadRejectsEmptyFile(t *testing.T) {
 		t.Fatal("Load() accepted an empty config")
 	}
 }
+
+// model_version selects the catalog emitter (ADR 0005), so a value no
+// emitter in this binary implements cannot boot: before, any non-empty
+// string did, and changed nothing.
+func TestLoadRejectsUnsupportedModelVersion(t *testing.T) {
+	yaml := strings.Replace(validYAML, "model_version: openits/v1", "model_version: openits/v2", 1)
+	_, err := Load(write(t, yaml), regWith("ntcip", "asc"))
+	if err == nil || !strings.Contains(err.Error(), "openits/v2") || !strings.Contains(err.Error(), "openits/v1") {
+		t.Fatalf("Load() error = %v, want one naming the bad value and the supported ones", err)
+	}
+}

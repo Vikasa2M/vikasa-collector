@@ -251,3 +251,17 @@ func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
 		t.Fatalf("app wrote to the global logger: %q", global.String())
 	}
 }
+
+// Every version config accepts must select an emitter here, or a config that
+// passed validation would fail at the first point it matters.
+func TestEverySupportedModelVersionSelectsAnEmitter(t *testing.T) {
+	for _, v := range wire.SupportedModelVersions {
+		em, err := catalogEmitter(v, "cab-1-collector")
+		if err != nil || em == nil {
+			t.Errorf("catalogEmitter(%q) = %v, %v; want an emitter", v, em, err)
+		}
+	}
+	if _, err := catalogEmitter("openits/v0", "cab-1-collector"); err == nil {
+		t.Error("catalogEmitter accepted a version no emitter implements")
+	}
+}
