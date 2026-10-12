@@ -168,6 +168,11 @@ the leaf stays connected, so `$SYS` says *cabinet up* while health says
 
 ## 5. Open problem: publish loss while the broker is down
 
+**RESOLVED** by [ADR 0020](../adr/0020-broker-absence-is-latency.md): a
+bounded in-memory queue with backoff, oldest-first drops when full, and every
+drop counted in `/status` and the ADR 0019 heartbeat. The analysis below is
+kept as the record of the options weighed.
+
 Found while working through the broker/readiness interaction, and not yet
 solved.
 

@@ -1,6 +1,6 @@
 # ADR 0019: Collector self-health is a periodic heartbeat on a per-instance subject
 
-**Status:** Proposed (2026-08-23)
+**Status:** Accepted (2026-10-12; proposed 2026-08-23)
 **Amends:** [ADR 0007](0007-collector-owned-health-schema.md) — adds to the
 collector-owned health schema it established, and changes how device-less
 events render their subject.
