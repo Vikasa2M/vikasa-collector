@@ -38,16 +38,20 @@ why they are not one stream.
 
 This is the part most likely to be assumed rather than read. The collector
 makes a **bounded** effort to deliver, and events can be lost in four
-distinct ways. All four are visible in logs; none is currently counted
-(there is no metrics subsystem — see
-[the gap list](../README.md#known-gaps-and-successor-work)).
+distinct ways. All four are visible in logs.
 
-1. **Publish exhausts its retries.** `Publisher.Publish`
-   (`internal/publish/publish.go`) makes three attempts with a fixed 250 ms
-   backoff. If all three fail, `internal/app/app.go` logs
-   `"publish failed"` at error level and moves on. There is no queue and no
-   later retry — deliberately, because unbounded in-process buffering on a
-   cabinet with no operator is a worse failure than a dropped event.
+1. **The publisher cannot hold it.** A broker that is down or restarting
+   costs latency, not events: the publisher
+   (`internal/publish/publish.go`) queues in memory and retries with backoff
+   until the broker is back ([ADR 0020](../adr/0020-broker-absence-is-latency.md)).
+   But the queue is bounded, so three cases still lose an event, each
+   counted (`Publisher.Stats`) and logged:
+   - the queue is full, and the **oldest** queued event is evicted to make
+     room — so during a long outage you keep the most recent events and
+     lose the earliest ones;
+   - the broker will never accept it (for example, larger than its maximum
+     payload), so it is dropped at once rather than blocking the queue;
+   - it is still queued when shutdown's drain window closes.
 2. **No emitter claims the event.** A domain event with no ce-type mapping is
    logged as `"event dropped: no emitter for domain event"` and discarded.
 3. **The emitter declines to encode it.** Where a domain value has no honest

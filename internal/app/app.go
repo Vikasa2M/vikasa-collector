@@ -22,9 +22,10 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
 
-// drainTimeout bounds how long shutdown will wait for in-flight publishes to
-// land before abandoning them. Local JetStream is same-box, so this only ever
-// elapses when the broker is genuinely unreachable.
+// drainTimeout bounds how long shutdown spends publishing what is still
+// queued (ADR 0020 clause 5). Local JetStream is same-box, so this only ever
+// elapses when the broker is genuinely unreachable; what is left is counted
+// and logged, not waited on.
 const drainTimeout = 5 * time.Second
 
 // closeTimeout bounds how long shutdown waits for adapters to close. Close
@@ -97,22 +98,20 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	}
 	defer closeAll(log, readers)
 
-	pub, err := publish.Connect(ctx, opts.NATSURL, tmpl, ceTypes)
+	// Start never waits for the broker (ADR 0020): it connects in the
+	// background and queues until the broker is there, so the collector boots
+	// and polls whether or not NATS is up yet.
+	pub, err := publish.Start(ctx, opts.NATSURL, tmpl, ceTypes, log)
 	if err != nil {
 		return err
 	}
-	defer pub.Close()
 
-	// Publishing deliberately does NOT ride ctx: a poll that succeeded just as
-	// shutdown arrived has already taken a real reading off a real device, and
-	// cancelling its publish would throw that reading away. pubCtx outlives ctx
-	// by a bounded drain (below) so those land.
-	pubCtx, cancelPub := context.WithCancel(context.WithoutCancel(ctx))
-	defer cancelPub()
-
+	// sink only queues, so a runner never waits on the broker. Publishing
+	// deliberately does not ride ctx: a reading taken just as shutdown
+	// arrived is still published, within the drain window below.
 	sink := func(events []model.Event) {
 		for _, ev := range events {
-			encodeAndPublish(pubCtx, log, pub, tenant, emitters, ev)
+			encodeAndEnqueue(log, pub, tenant, emitters, ev)
 		}
 	}
 
@@ -148,14 +147,13 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 
 	<-ctx.Done()
 
-	// Runners call sink synchronously, so wg.Wait returning means every event
-	// they produced has been through publish. The timer bounds that wait: a
-	// dead broker must not hang shutdown forever, so the drain window is the
-	// most we will spend trying to save in-flight readings.
-	drain := time.AfterFunc(drainTimeout, cancelPub)
+	// Runners stop promptly (a hung read is abandoned, and sink never
+	// blocks), so once they have, nothing else can be queued. Then give the
+	// queue its bounded drain window.
 	wg.Wait()
-	drain.Stop()
-	cancelPub()
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drainTimeout)
+	defer cancel()
+	pub.Drain(dctx)
 
 	return nil
 }
@@ -216,7 +214,7 @@ func closeAll(log *slog.Logger, readers []adapter.StateReader) {
 	}
 }
 
-func encodeAndPublish(ctx context.Context, log *slog.Logger, pub *publish.Publisher, tenant cloudevents.Tenant,
+func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, tenant cloudevents.Tenant,
 	emitters []wire.Emitter, ev model.Event) {
 	for _, em := range emitters {
 		enc, ok, err := em.Encode(ev)
@@ -246,8 +244,8 @@ func encodeAndPublish(ctx context.Context, log *slog.Logger, pub *publish.Publis
 			Data:        enc.Data,
 			Identity:    enc.Identity,
 		})
-		if err := pub.Publish(ctx, env, enc.CEType, ev.EventDeviceID()); err != nil {
-			log.Error("publish failed", "type", enc.CEType, "device", ev.EventDeviceID(), "err", err)
+		if err := pub.Enqueue(env, ev.EventDeviceID()); err != nil {
+			log.Error("event not queued", "type", enc.CEType, "device", ev.EventDeviceID(), "err", err)
 		}
 		return
 	}

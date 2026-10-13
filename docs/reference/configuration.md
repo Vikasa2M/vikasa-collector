@@ -21,7 +21,7 @@ inventory.
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
 | `-config` | path | — | Path to `collector.yaml`. **Required**. |
-| `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed straight to `publish.Connect`, which dials it and provisions every stream during boot. |
+| `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed to `publish.Start`, which connects in the background: the collector boots and polls without it, queuing events until it is reachable ([ADR 0020](../adr/0020-broker-absence-is-latency.md)). |
 | `-log-level` | `debug` \| `info` \| `warn` \| `error` | `info` | Minimum level written. Case-insensitive. |
 | `-log-format` | `text` \| `json` | `text` | `text` is slog's `key=value` lines; `json` is one object per line, for a log shipper. |
 | `-version` | bool | `false` | Print the build version and exit. Set at build time via `-ldflags "-X main.version=..."`; without a stamp, a `go install …@vX.Y.Z` build prints its module version and a local build prints `dev`. |
@@ -40,11 +40,10 @@ device inventory `collector.yaml` describes, and a cabinet moving its broker
 should not require a config revision that fleet tooling would then have to
 reconcile.
 
-Note the boot ordering consequence: because `publish.Connect` dials during
-boot, an unreachable `-nats` currently fails startup rather than being
-retried. ADR 0014 says that should be the one sanctioned exception to
-fail-fast and it is not implemented yet — see
-[the gap list](../README.md#known-gaps-and-successor-work).
+An unreachable `-nats` is therefore not a startup failure. It is the one
+sanctioned exception to fail-fast (ADR 0014): the address is still
+validated as a URL at boot, but a broker that is down, or simply slower to
+start than the collector, is waited for rather than treated as bad config.
 
 ## Fields
 
