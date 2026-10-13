@@ -234,3 +234,86 @@ func TestRunBootsWithoutABrokerAndPublishesWhenOneArrives(t *testing.T) {
 		t.Fatalf("Run = %v after a clean shutdown", err)
 	}
 }
+
+// faultyASC reports one standing fault on every poll and counts its reads.
+type faultyASC struct {
+	mu    sync.Mutex
+	reads int
+}
+
+func (f *faultyASC) Descriptor() adapter.Descriptor {
+	return adapter.Descriptor{Vendor: "fixture", DeviceKind: "asc", Caps: adapter.CapState}
+}
+func (f *faultyASC) Close() error { return nil }
+func (f *faultyASC) Read(context.Context) (*model.Snapshot, error) {
+	f.mu.Lock()
+	f.reads++
+	f.mu.Unlock()
+	return &model.Snapshot{DeviceID: "asc-1", SampledAt: time.Now().UTC(), Facets: []model.Facet{
+		model.FaultSet{Faults: []model.Fault{{ID: "cabinet-door", Severity: model.SeverityMinor,
+			Category: model.CategoryCabinet, Description: "Cabinet door open"}}},
+	}}, nil
+}
+func (f *faultyASC) readCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.reads }
+
+// ADR 0017, end to end: restarting the collector while a fault stands does
+// not raise it again. Before, every restart — every rollout — re-raised
+// every standing fault, with a new ce-id no consumer could dedupe.
+func TestRestartDoesNotReRaiseStandingFaults(t *testing.T) {
+	ns := startNATS(t)
+	cfg := &config.Config{
+		Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1",
+		CollectorID: "metro-cab-1-collector", ModelVersion: "openits/v1",
+		Devices: []config.Device{{ID: "asc-1", Vendor: "fixture", DeviceKind: "asc", PollInterval: 20 * time.Millisecond}},
+	}
+	nc, err := nats.Connect(ns.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	var mu sync.Mutex
+	raised := 0
+	if _, err := nc.Subscribe(">", func(m *nats.Msg) {
+		if m.Header.Get("ce-type") == "openits.signal-control.fault-raised.v1" {
+			mu.Lock()
+			raised++
+			mu.Unlock()
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	countRaised := func() int { mu.Lock(); defer mu.Unlock(); return raised }
+
+	lifetime := func(until func(dev *faultyASC) bool) {
+		dev := &faultyASC{}
+		reg := adapter.NewRegistry()
+		reg.Register(dev.Descriptor(), func(string, map[string]any) (adapter.Adapter, error) { return dev, nil })
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for !until(dev) {
+			if time.Now().After(deadline) {
+				t.Fatal("lifetime condition never met")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	lifetime(func(*faultyASC) bool { return countRaised() == 1 })
+	if err := nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	lifetime(func(dev *faultyASC) bool { return dev.readCount() >= 10 }) // well past seeding
+	if err := nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := countRaised(); got != 1 {
+		t.Fatalf("fault-raised published %d times across a restart, want 1", got)
+	}
+}

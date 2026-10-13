@@ -107,24 +107,6 @@ no longer declared fails as stale. Each entry carries one of four reasons:
 `unmapped` line. Start with `traffic-sensor-status-report`, the one ADR
 0016 names explicitly.
 
-**Synth's previous state does not survive a restart.** `synth.Engine` keeps
-`prev[deviceID][kind]` in an in-memory map (`internal/synth/synth.go`), so a
-restarted collector diffs against nothing. `internal/synth/fault.go` re-emits
-`FaultRaised` for every standing fault — a storm on every rollout restart —
-and every other differ silently drops whatever transitioned while the process
-was down. Consumers cannot dedupe the re-raise: the ce-id derives from the
-snapshot's `SampledAt` (`internal/cloudevents/envelope.go`), so it is a
-different id for a genuinely different observation.
-[ADR 0017](adr/0017-durable-synth-state.md) decides the fix and nothing
-implements it yet. The consumer-side half of ADR 0017 is done: the
-idempotency requirement per `(device, fault-id)`, and today's restart
-behaviour, are stated in
-[`reference/consumer-contract.md`](reference/consumer-contract.md). *Closing
-the rest:* write `prev` through to a JetStream KV bucket in the cabinet's own
-NATS under a JetStream domain, and seed it at boot before the first poll. The
-contractual requirement stays either way — no local store survives a reflash,
-and after one the collector will correctly re-raise.
-
 **`ntcip-asc`'s fixtures are hand-written, not recordings.** ADR 0008 requires
 recorded raw transport responses; `internal/vendors/ntcip/asc_test.go`'s
 `healthyFixture` is a hand-typed `map[string]int64`, and the adapter's own doc
