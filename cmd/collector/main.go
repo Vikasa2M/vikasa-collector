@@ -24,6 +24,13 @@ var version = "dev" // set via -ldflags "-X main.version=..."
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// The first signal starts a graceful, bounded shutdown. Restoring default
+	// handling right then means a second one kills the process outright, for
+	// an operator who will not wait out the drain.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	err := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	if err != nil && !errors.Is(err, flag.ErrHelp) {

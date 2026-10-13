@@ -128,3 +128,37 @@ func TestRunBootFailureLeavesNothingRunning(t *testing.T) {
 	default:
 	}
 }
+
+// stuckCloser polls fine but never returns from Close.
+type stuckCloser struct{ recordingASC }
+
+func (s *stuckCloser) Close() error { select {} }
+
+// Shutdown is bounded even when an adapter's Close never returns: the
+// process must exit for its supervisor, not wait on a third-party bug.
+func TestRunShutdownIsBoundedWhenAnAdapterCloseHangs(t *testing.T) {
+	ns := startNATS(t)
+	old := closeTimeout
+	closeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { closeTimeout = old })
+
+	reg := adapter.NewRegistry()
+	reg.Register(adapter.Descriptor{Vendor: "fixture", DeviceKind: "asc", Caps: adapter.CapState},
+		func(string, map[string]any) (adapter.Adapter, error) { return &stuckCloser{}, nil })
+	cfg := &config.Config{
+		Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1",
+		CollectorID: "metro-cab-1-collector", ModelVersion: "openits/v1",
+		Devices: []config.Device{{ID: "asc-1", Vendor: "fixture", DeviceKind: "asc", PollInterval: time.Hour}},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	time.Sleep(200 * time.Millisecond) // let it boot; nothing here signals readiness yet
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return: shutdown waited on an adapter Close that never returns")
+	}
+}

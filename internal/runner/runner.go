@@ -9,6 +9,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -32,6 +33,16 @@ type Runner struct {
 	jitter func(time.Duration) time.Duration
 
 	consecutiveFailures int
+
+	// pending receives the result of a Read that outlived its poll. While it
+	// is non-nil that Read is still running, and no new one is started:
+	// adapters may assume they are never read concurrently.
+	pending chan readResult
+}
+
+type readResult struct {
+	snap *model.Snapshot
+	err  error
 }
 
 // New builds a Runner. timeout==0 defaults to interval. A non-positive
@@ -86,7 +97,7 @@ func (r *Runner) pollOnce(ctx context.Context) {
 	pctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	snap, err := r.readGuarded(pctx)
+	snap, err := r.read(pctx)
 	switch {
 	case err != nil:
 		// A poll cut short by our own shutdown is not the device's fault.
@@ -115,6 +126,35 @@ func (r *Runner) pollOnce(ctx context.Context) {
 		if evs := r.engine.Apply(snap); len(evs) > 0 {
 			r.out(evs)
 		}
+	}
+}
+
+// read bounds an adapter Read by pctx even when the adapter ignores it. A
+// Read still running when pctx ends is abandoned rather than waited on —
+// so a hung adapter is a failed poll, and shutdown never waits on one —
+// and the next poll fails fast until it finally returns. Its eventual
+// result is discarded: by then it is stale, and absence of evidence is
+// not a state change.
+func (r *Runner) read(pctx context.Context) (*model.Snapshot, error) {
+	if r.pending != nil {
+		select {
+		case <-r.pending:
+			r.pending = nil
+		default:
+			return nil, errors.New("previous read is still running")
+		}
+	}
+	ch := make(chan readResult, 1) // buffered: an abandoned Read never blocks on send
+	go func() {
+		snap, err := r.readGuarded(pctx)
+		ch <- readResult{snap, err}
+	}()
+	select {
+	case res := <-ch:
+		return res.snap, res.err
+	case <-pctx.Done():
+		r.pending = ch
+		return nil, fmt.Errorf("read did not return within %v: %w", r.timeout, pctx.Err())
 	}
 }
 
