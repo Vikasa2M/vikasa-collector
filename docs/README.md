@@ -93,8 +93,8 @@ no longer declared fails as stale. Each entry carries one of four reasons:
   adapter, not on a mapping.
 - **describes a command** (3) — the `openits.cctv.*` PTZ and lockout
   events. Nothing in the collector commands anything
-  (`sdk/adapter.Commander` has no dispatch path, the same shape as the
-  `EventReader` gap below).
+  (the SDK has no command path at all, by
+  [ADR 0021](adr/0021-sdk-interfaces-ship-with-their-first-implementer.md)).
 - **signal control, not yet assessed per event** (12) — most are high-rate
   per-cycle events an SNMP poller structurally cannot observe; they want a
   controller pushing, which is the end state ADR 0016 expects to make the
@@ -135,19 +135,7 @@ kit (successor A) — a tool that captures real SNMP responses into `testdata/`
 with a sanctioned regeneration path, then re-recording `ntcip-asc` against a
 real controller. Evidence: ledger `:194-210`, `:3428-3440`.
 
-**`EventReader` has no dispatch path.** `sdk/adapter/adapter.go` declares the
-interface and the `CapEvents` capability, but `runner.New`
-(`internal/runner/runner.go`) is typed to `adapter.StateReader` specifically,
-not a common adapter interface. A fully-implemented `EventReader` adapter
-would have nothing in the poll path routing its `Fetch()` output to an
-emitter. This is consistent with ADR 0004's "deferred to the first log-shaped
-adapter" framing, but the branch the greenfield architecture spec §4 and §6
-describe has zero code, and that spec is deleted in Phase 2 — so this is the
-only remaining record of it. *Closing it:* widen the runner (or add a second
-loop) to dispatch on capability, together with the first `EventReader`
-adapter. Evidence: ledger `:2908-2925`.
-
-**ADR 0012's readiness signal and expected-version drift reporting do not
+**ADR 0012**ADR 0012's readiness signal and expected-version drift reporting do not
 exist.** Nothing in the tree implements a readiness endpoint or signal, and
 nothing reports an expected-versus-running version. ADR 0012's Decision
 section lists three numbered mechanisms in the present tense; only the first

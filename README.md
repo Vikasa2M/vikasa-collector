@@ -76,7 +76,7 @@ through to a real event on the bus in one sitting. When you're writing the
 real thing, [`docs/how-to/add-a-vendor-adapter.md`](docs/how-to/add-a-vendor-adapter.md)
 is the canonical guide.
 
-Implement `sdk/adapter.StateReader` (or `EventReader`) returning
+Implement `sdk/adapter.StateReader` returning
 `sdk/model` types, register a `Descriptor{Vendor, DeviceKind}`, and ship
 recorded fixtures with golden tests — see [the fixture
 rule](docs/reference/invariants.md#no-fixtures-no-merge). Adapters don't

@@ -29,9 +29,6 @@ func TestEventKindsAndAccessors(t *testing.T) {
 			t.Errorf("%s: OccurredAt = %v, want %v", c.kind, got, at)
 		}
 	}
-	if (SetPlan{PlanID: 4}).CommandKind() != "set-plan" {
-		t.Error("SetPlan.CommandKind() != set-plan")
-	}
 }
 
 // Event kinds match the catalog's ce-type event tokens (fault-raised,
