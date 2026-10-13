@@ -230,6 +230,11 @@ func (p *Publisher) Enqueue(env cloudevents.Envelope, deviceID string) error {
 	return nil
 }
 
+// JetStream is the publisher's JetStream handle, for other cabinet-local
+// state that should share its one broker connection (the synth state
+// bucket, ADR 0017).
+func (p *Publisher) JetStream() jetstream.JetStream { return p.js }
+
 // Stats returns the counters and the current queue depth.
 func (p *Publisher) Stats() Stats {
 	p.mu.Lock()

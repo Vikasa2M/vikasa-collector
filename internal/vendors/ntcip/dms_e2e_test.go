@@ -5,8 +5,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,9 +21,11 @@ import (
 
 // TestDMSEventsReachJetStream runs the real collector spine against
 // embedded JetStream and ntcip-dms reading a scripted SNMP fixture.
-// Poll 1 establishes baseline (sign-status-report from env); poll 2
-// changes the face message and control mode so message-changed and
-// mode-changed also land. Logs every CloudEvent that reaches the bus.
+// The sign holds its baseline until the first sign-status-report reaches
+// the bus — which only happens once the engine has loaded its state and is
+// diffing (ADR 0020 clause 2; a change during that hold is not evidence) —
+// then changes its face message and control mode, so message-changed and
+// mode-changed land. Logs every CloudEvent that reaches the bus.
 func TestDMSEventsReachJetStream(t *testing.T) {
 	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -35,9 +37,10 @@ func TestDMSEventsReachJetStream(t *testing.T) {
 		t.Fatal("nats not ready")
 	}
 
+	sign := &scriptedDMS{}
 	reg := adapter.NewRegistry()
 	reg.Register(dmsDescriptor, func(deviceID string, _ map[string]any) (adapter.Adapter, error) {
-		return NewDMS(deviceID, &scriptedDMS{}), nil
+		return NewDMS(deviceID, sign), nil
 	})
 
 	cfgYAML := `
@@ -96,6 +99,9 @@ devices:
 			if _, ok := want[ceType]; ok {
 				want[ceType] = true
 			}
+			if ceType == "openits.dms.sign-status-report.v1" {
+				sign.changed.Store(true) // the engine is diffing: now change the sign
+			}
 			if allTrue(want) {
 				return
 			}
@@ -122,11 +128,11 @@ func allTrue(m map[string]bool) bool {
 	return true
 }
 
-// scriptedDMS returns poll-1 baseline then poll-2+ with a new face message
-// and local control, so transition differs fire after the first sample.
+// scriptedDMS returns the baseline until changed is set, then a new face
+// message and local control, so the transition differs fire.
 type scriptedDMS struct {
-	mu    sync.Mutex
-	polls int
+	mu      sync.Mutex
+	changed atomic.Bool
 }
 
 func (s *scriptedDMS) Get(ctx context.Context, oids []string) (map[string]int64, error) {
@@ -140,19 +146,11 @@ func (s *scriptedDMS) Get(ctx context.Context, oids []string) (map[string]int64,
 func (s *scriptedDMS) GetAll(_ context.Context, oids []string) (snmp.Values, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Two Gets per Read (status then env). Advance the poll counter on the
-	// status Get so env sees the same poll's values.
-	isStatus := slices.Contains(oids, oidDMSControlMode)
-	if isStatus {
-		s.polls++
-	}
-	poll := max(s.polls, 1)
-
 	ints := map[string]int64{}
 	octets := map[string][]byte{}
 	maps.Copy(ints, healthyDMSInts)
 	maps.Copy(octets, healthyDMSOctets)
-	if poll >= 2 {
+	if s.changed.Load() {
 		ints[oidDMSControlMode] = 2 // local
 		ints[oidDMSMsgSourceMode] = 2
 		octets[oidDMSMsgTableSource] = []byte{3, 0, 4, 0x12, 0x34} // changeable #4

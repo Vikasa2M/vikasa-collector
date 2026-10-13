@@ -11,6 +11,7 @@ import (
 
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
+	"github.com/Vikasa2M/vikasa-collector/internal/durable"
 	"github.com/Vikasa2M/vikasa-collector/internal/publish"
 	"github.com/Vikasa2M/vikasa-collector/internal/runner"
 	"github.com/Vikasa2M/vikasa-collector/internal/stats"
@@ -28,6 +29,11 @@ import (
 // elapses when the broker is genuinely unreachable; what is left is counted
 // and logged, not waited on.
 const drainTimeout = 5 * time.Second
+
+// stateFlushTimeout bounds how long shutdown spends writing synth state
+// still pending. It runs before the publisher drains, because the drain
+// closes the connection both share.
+const stateFlushTimeout = 2 * time.Second
 
 // closeTimeout bounds how long shutdown waits for adapters to close. Close
 // is third-party code; a supervisor waiting on the process to exit must not
@@ -149,6 +155,14 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 			"device", deviceID, "kind", string(kind), "type", got)
 	})
 
+	// The engine is held until its previous state loads (ADR 0017, ADR 0020
+	// clause 2): runners poll and report device health from the start, but
+	// nothing is diffed for a device until the engine knows what it knew
+	// before this boot — otherwise every restart re-raises every standing
+	// fault and loses whatever changed while it was down.
+	engine.HoldUntilSeeded()
+	state := durable.Start(ctx, pub.JetStream(), engine, cfg.DeviceIDs(), log)
+
 	var wg sync.WaitGroup
 	for i, d := range cfg.Devices {
 		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink, counters)
@@ -161,6 +175,9 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// blocks), so once they have, nothing else can be queued. Then give the
 	// queue its bounded drain window.
 	wg.Wait()
+	fctx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), stateFlushTimeout)
+	defer cancelFlush()
+	state.Flush(fctx)
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drainTimeout)
 	defer cancel()
 	pub.Drain(dctx)

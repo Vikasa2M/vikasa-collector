@@ -40,8 +40,8 @@ This is the part most likely to be assumed rather than read. The collector
 makes a **bounded** effort to deliver, and events can be lost in four
 distinct ways. The first three are logged and counted in the collector's own
 counters (`internal/stats`; served by `/status` and the ADR 0019 heartbeat
-once those are built). The fourth cannot be: a collector that was down did
-not see what it missed.
+once those are built). The fourth cannot be: a collector without its stored
+state does not know what it missed.
 
 1. **The publisher cannot hold it.** A broker that is down or restarting
    costs latency, not events: the publisher
@@ -62,8 +62,10 @@ not see what it missed.
    near-neighbour — see
    [the drop rule](../explanation/wire-boundary.md#the-drop-rule-decline-rather-than-approximate).
    A visible drop beats a wrong value on the bus.
-4. **The device's state changed while the collector was down.** See the
-   restart section below.
+4. **The collector restarted without its stored state.** A restart normally
+   recovers what changed while it was down (see the restart section below),
+   but not after a first boot, a reflash or a lost write, and never for
+   detector counts.
 
 **The consequence to design around: absence of an event is not evidence that
 nothing happened.** If your logic needs to know a device's current state, poll
@@ -103,25 +105,34 @@ will re-raise — correctly, because it genuinely does not know.
 
 ## Restart behaviour
 
-**Today the collector's memory of previous state is in-process only.** On
-restart it diffs against nothing, and two things follow:
+**The collector remembers previous state across a restart**
+([ADR 0017](../adr/0017-durable-synth-state.md)). Every facet the engine
+diffs against is written through to a key-value bucket
+(`VIKASA_SYNTH_STATE`) on the cabinet's own JetStream, and a restarted
+collector loads it before it diffs anything (`internal/durable`). So:
 
-- **Every standing fault re-raises.** `internal/synth/fault.go` structurally
-  cannot do otherwise with no previous set: every currently-raised fault is,
-  as far as it can tell, a fault that just appeared. A cabinet with four
-  standing faults re-announces four raises on every restart — including every
-  rollout restart.
-- **Transitions during the restart window are lost.** A signal that changed
-  mode while the collector was down comes back with no previous state and
-  emits no `mode-changed` at all. The state is correct on the next report
-  that carries it; the *transition* is gone.
+- **A standing fault is not re-raised.** It was known before the restart and
+  is known after it.
+- **A transition that happened while the collector was down is emitted
+  once,** on the first diff after the restart — with that poll's time as
+  `occurred-at`, since the collector cannot know when, inside the gap, it
+  actually happened.
+- **Until the state has loaded, the collector reports device health but no
+  domain events** (ADR 0020). If the broker is not up at boot, that hold
+  lasts until it is; there is no fallback to diffing from empty.
 
-The first manufactures an event that did not happen at that moment; the
-second swallows one that did. [ADR 0017](../adr/0017-durable-synth-state.md)
-decides the fix — writing previous state through to a JetStream KV bucket in
-the cabinet's own NATS and seeding it at boot — and **it is not implemented
-yet**. Until it is, the behaviour above is what a consumer sees. It is
-tracked in [the gap list](../README.md#known-gaps-and-successor-work).
+What it cannot cover, and why the idempotency requirement above stays:
+
+- **No stored state** — the first boot, a reflash, a replaced storage
+  device, or a deleted bucket. The collector starts from first observations,
+  and every standing fault is raised, correctly: it genuinely does not know.
+- **State not yet written when the process died.** Writes are asynchronous
+  and coalesced; a crash (not a clean shutdown, which flushes) can lose the
+  last change, so the next boot may report it again.
+- **Detector counts.** They change on every poll, so they are deliberately
+  not stored (that would be a flash write per poll); the first poll after a
+  restart is a first observation and emits no detector report, so one
+  interval's volume delta is missing.
 
 ## Ordering
 
