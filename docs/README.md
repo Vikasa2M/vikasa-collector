@@ -29,7 +29,7 @@ empties out as that work ships.
 | I want to... | Start here |
 |---|---|
 | See the repo for the first time | [`../README.md`](../README.md) — the one-diagram architecture and current Status |
-| Contribute without access to any hardware | [`reference/starter-tasks.md`](reference/starter-tasks.md#starter-tasks-that-need-no-hardware) — open gaps with a named test to copy; `make check` is the whole feedback loop |
+| Contribute without access to any hardware | [`reference/starter-tasks.md`](reference/starter-tasks.md#starter-tasks-that-need-no-hardware) — owed wire mappings in services already wired; `make check` is the whole feedback loop |
 | Learn the codebase by building something | [`tutorial/build-your-first-adapter.md`](tutorial/build-your-first-adapter.md) — clone to a real event on the bus, in one sitting |
 | Add a vendor adapter (needs access to the device) | [`reference/starter-tasks.md`](reference/starter-tasks.md) for the highest-leverage first PR, [`how-to/add-a-vendor-adapter.md`](how-to/add-a-vendor-adapter.md) for the full guide, then [`add-vendor-adapter`](../.claude/skills/add-vendor-adapter/SKILL.md) for the step-by-step checklist |
 | Add a device-state concept nothing in `sdk/model` represents yet (a new facet) | [`how-to/add-a-domain-facet.md`](how-to/add-a-domain-facet.md), then [`add-domain-facet`](../.claude/skills/add-domain-facet/SKILL.md) |
@@ -107,22 +107,6 @@ no longer declared fails as stale. Each entry carries one of four reasons:
 `unmapped` line. Start with `traffic-sensor-status-report`, the one ADR
 0016 names explicitly.
 
-**Four of the nine registered differs have no failed-read test.** The
-absence-of-evidence rule (ADR 0013) is proven for the signal, fault, detector
-and DMS differs (`TestFailedFacetSuspendsDiffing`,
-`TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`,
-`TestDMSFailedReadEmitsNothing`). The CCTV, traffic-interval, zone-incident
-and zone-interval differs have none — `internal/synth/cctv_test.go`,
-`internal/synth/trafficsensor_test.go` and `internal/synth/perception_test.go`
-contain zero failed-read cases. `Engine.Apply` (`internal/synth/synth.go`)
-implements the gate once in shared code, so the blast radius is likely small,
-but an untested invariant is untested. *Closing it:* four tests in the shape
-of `TestDMSFailedReadEmitsNothing` — a failed poll emits zero events, and the
-recovery poll diffs against the pre-failure state rather than a zero value.
-Live coverage is tracked in
-[`reference/invariants.md`](reference/invariants.md#absence-of-evidence-is-never-a-state-change).
-Evidence: ledger `:1442-1460`.
-
 **Synth's previous state does not survive a restart.** `synth.Engine` keeps
 `prev[deviceID][kind]` in an in-memory map (`internal/synth/synth.go`), so a
 restarted collector diffs against nothing. `internal/synth/fault.go` re-emits
@@ -150,17 +134,6 @@ does not meet it. *Closing it:* the fixture recorder and adapter conformance
 kit (successor A) — a tool that captures real SNMP responses into `testdata/`
 with a sanctioned regeneration path, then re-recording `ntcip-asc` against a
 real controller. Evidence: ledger `:194-210`, `:3428-3440`.
-
-**The signal differ has no axis-independence test.** It is the one differ fed
-by the collector's only shipped adapter.
-`internal/synth/signal_test.go`'s `TestTransitionsEmitChangeEvents` moves
-mode, plan and preemption in a single poll and only asserts the expected event
-is *present*, never that the others are *absent*. `AGENTS.md` and
-[`reference/test-requirements.md`](reference/test-requirements.md) both state
-the correct bar. *Closing it:* a `TestSignalAxesChangeIndependently` in the
-shape of `TestDMSAxesChangeIndependently` (`internal/synth/dms_test.go`) —
-move one axis, assert an exact event count, repeat per axis. Evidence: ledger
-`:486-500`.
 
 **`EventReader` has no dispatch path.** `sdk/adapter/adapter.go` declares the
 interface and the `CapEvents` capability, but `runner.New`

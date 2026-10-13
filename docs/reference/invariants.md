@@ -35,7 +35,7 @@ left blank, so the gap is visible instead of implied.
 | The openits-models pin carries no `replace` directive | ADR 0010 | `scripts/lint-boundary.sh` |
 | The openits-models pin names a release tag | ADR 0018 | `scripts/lint-boundary.sh` |
 | The pinned release is a current one, not an old tag | ADR 0018 | Review (manual) |
-| Absence of evidence is never a state change | ADR 0013 | `internal/synth/synth.go`, `TestFailedFacetSuspendsDiffing`, `TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`, `TestDMSFailedReadEmitsNothing` |
+| Absence of evidence is never a state change | ADR 0013 | `internal/synth/synth.go`, `TestFailedFacetSuspendsDiffing`, `TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`, `TestDMSFailedReadEmitsNothing`, `TestDMSEnvFailedReadEmitsNothing`, `TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure`, `TestZoneIncidentFailedReadNeitherClearsNorRedetects`, `TestTrafficIntervalFailedReadDoesNotDuplicateTheReport`, `TestZoneIntervalFailedReadDoesNotDuplicateTheReport` |
 | Config is the trust boundary; boot fails on the unrecognized | ADR 0014 | `internal/config` |
 | Subjects are operator-configurable; the CloudEvents envelope stays canonical | ADR 0009, ADR 0011, ADR 0015 | `internal/subject`, `internal/cloudevents`, `internal/config` |
 | openits-models is not reshaped to suit the collector | ADR 0016 | Review (manual) |
@@ -125,17 +125,15 @@ came back empty instead of wrong. The mechanism lives in
 read is simply never present in `Snapshot.Facets`, so its differ is never
 invoked and the engine's remembered previous state survives untouched.
 
-**This enforcement is partial, and the table says so rather than implying
-otherwise.** Only 4 of the collector's 9 registered differs have a test
-proving the failed-read path actually holds for them:
-`TestFailedFacetSuspendsDiffing` (signal), `TestFailedFaultReadNeverClears`
-(fault), `TestFailedDetectorReadEmitsNothing` (detector), and
-`TestDMSFailedReadEmitsNothing` (DMS). CCTV, traffic-interval,
-zone-incident, and zone-interval do not have one yet — the shared `Apply`
-mechanism almost certainly covers them too, but "almost certainly" is not
-"proven," and writing the missing four tests is tracked as a successor work
-item rather than papered over here — see the
-[gap list](../README.md#known-gaps-and-successor-work).
+**Every registered differ has a failed-read test** — the nine named in the
+table row above. The four in `internal/synth/failed_read_test.go` go one
+step further than "the failed poll emitted nothing": each recovery poll is
+chosen so that an engine which forgot the pre-failure state would emit
+something different (a transition with the wrong `From`, a re-detected
+incident, a duplicate interval report). That distinction matters because
+silence on the failed poll alone cannot tell a correct engine from one that
+wiped its memory — and a mutation that makes `Apply` forget state on a
+failed read fails all four.
 
 ## Config is the trust boundary; boot fails on the unrecognized
 
