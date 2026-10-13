@@ -27,6 +27,11 @@ import (
 // elapses when the broker is genuinely unreachable.
 const drainTimeout = 5 * time.Second
 
+// closeTimeout bounds how long shutdown waits for adapters to close. Close
+// is third-party code; a supervisor waiting on the process to exit must not
+// wait on an adapter bug. A var so tests can shorten it.
+var closeTimeout = 2 * time.Second
+
 // Options carries what Run needs beyond the validated config and registry.
 type Options struct {
 	// NATSURL is the cabinet-local broker.
@@ -190,11 +195,24 @@ func buildReaders(log *slog.Logger, devices []config.Device, reg *adapter.Regist
 	return readers, nil
 }
 
+// closeAll closes every reader concurrently and waits at most
+// closeTimeout. A Close still running then is abandoned and logged; the
+// process is exiting, and the OS reclaims what it held.
 func closeAll(log *slog.Logger, readers []adapter.StateReader) {
+	var wg sync.WaitGroup
 	for _, r := range readers {
-		if err := r.Close(); err != nil {
-			log.Warn("adapter close", "adapter", r.Descriptor().Key(), "err", err)
-		}
+		wg.Go(func() {
+			if err := r.Close(); err != nil {
+				log.Warn("adapter close", "adapter", r.Descriptor().Key(), "err", err)
+			}
+		})
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(closeTimeout):
+		log.Warn("adapter close timed out; exiting without it", "timeout", closeTimeout)
 	}
 }
 

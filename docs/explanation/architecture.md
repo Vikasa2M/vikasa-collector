@@ -137,8 +137,12 @@ own goroutine (`internal/app.Run` starts one `go r.Run(ctx)` per entry in
   interval does not all poll in lockstep.
 - **Per-poll timeout.** Each poll runs under its own
   `context.WithTimeout(ctx, r.timeout)` (`pollOnce`), independent of the
-  next poll's schedule. A device that hangs mid-read is cut off at the
-  timeout, not left to block the runner indefinitely.
+  next poll's schedule. The runner does not trust the adapter to honour
+  it: `read` runs `Read` on its own goroutine and stops waiting when the
+  timeout or shutdown arrives, so a hung adapter is a failed poll (and,
+  after the first, a device-down event), never a frozen loop or a stalled
+  SIGTERM. The abandoned `Read` keeps running in the background; its
+  eventual result is discarded as stale.
 - **Panic isolation.** `readGuarded` recovers a panic from the adapter's
   `Read` call and turns it into an ordinary failed-poll error. Adapters are
   third-party code by design (`sdk/adapter`); one adapter panicking can
@@ -146,8 +150,9 @@ own goroutine (`internal/app.Run` starts one `go r.Run(ctx)` per entry in
 - **Serialized transport I/O, one goroutine per device.** Because each
   device has exactly one `Runner` goroutine running a sequential
   `pollOnce` → wait-for-ticker loop, that device's adapter is never asked
-  to do two things at once. Concurrency exists across devices, not within
-  one.
+  to do two things at once — including after a hung read: while an
+  abandoned `Read` is still running, later polls fail fast instead of
+  calling `Read` again. Concurrency exists across devices, not within one.
 
 A poll that returned no error resets `consecutiveFailures` and hands the
 snapshot to `engine.Apply`; a poll cut short by the runner's own shutdown
