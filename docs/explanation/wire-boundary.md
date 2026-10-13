@@ -227,8 +227,7 @@ entity kind for device kind"` or `"event dropped: no emitter for domain
 event"` — counts it (`dropped_no_source` or `dropped_no_emitter` in
 `internal/stats`), and returns without publishing. The counters are the
 collector's whole metrics surface ([ADR 0020](../adr/0020-broker-absence-is-latency.md)):
-no Prometheus or OpenTelemetry, but one `stats.Snapshot` that the local
-`/status` endpoint and the ADR 0019 heartbeat are both specified to serve —
-so once those land, a fleet operator alerts on a drop rate rather than
-grepping a cabinet's logs for it. Neither surface exists yet; today the
-counts are kept, and readable only in-process.
+no Prometheus or OpenTelemetry, but one `stats.Snapshot`, served today on
+the local `/status` endpoint and specified for the ADR 0019 heartbeat, so a
+fleet operator can alert on a drop rate rather than grep a cabinet's logs
+for it once the heartbeat carries it off the box.

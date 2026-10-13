@@ -17,6 +17,7 @@ import (
 
 	"github.com/Vikasa2M/vikasa-collector/internal/app"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
+	"github.com/Vikasa2M/vikasa-collector/internal/manage"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 )
 
@@ -68,6 +69,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	natsURL := fs.String("nats", "nats://127.0.0.1:4222", "local NATS URL")
 	logLevel := fs.String("log-level", "info", "log level: debug, info, warn, error")
 	logFormat := fs.String("log-format", "text", "log format: text, json")
+	statusAddr := fs.String("status-addr", "127.0.0.1:9471", "loopback address for /livez, /readyz, /status; empty disables")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -89,6 +91,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return usageError{err}
 	}
+	if err := manage.ValidateAddr(*statusAddr); err != nil {
+		return usageError{err}
+	}
 
 	reg := adapter.NewRegistry()
 	RegisterAdapters(reg)
@@ -96,7 +101,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return app.Run(ctx, cfg, reg, app.Options{NATSURL: *natsURL, Version: ver, Logger: log})
+	return app.Run(ctx, cfg, reg, app.Options{NATSURL: *natsURL, Version: ver, Logger: log, StatusAddr: *statusAddr})
 }
 
 // newLogger builds the process logger from the -log-* flags. An unknown

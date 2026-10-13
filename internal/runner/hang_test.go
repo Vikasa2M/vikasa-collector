@@ -50,7 +50,7 @@ func (h *hangingAdapter) Read(context.Context) (*model.Snapshot, error) {
 func TestRunReturnsOnShutdownWhileAReadHangs(t *testing.T) {
 	h := newHanging()
 	t.Cleanup(func() { close(h.release) })
-	r := New(h, "asc-1", time.Hour, time.Hour, synth.NewEngine(synth.NewSignalDiffer()), func([]model.Event) {}, nil)
+	r := New(h, Config{DeviceID: "asc-1", Interval: time.Hour, Timeout: time.Hour, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}})
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -86,7 +86,7 @@ func TestHungReadIsAFailedPollAndNeverOverlaps(t *testing.T) {
 		}
 		events = append(events, evs...)
 	}
-	r := New(h, "asc-1", 10*time.Millisecond, 10*time.Millisecond, synth.NewEngine(synth.NewSignalDiffer()), out, nil)
+	r := New(h, Config{DeviceID: "asc-1", Interval: 10 * time.Millisecond, Timeout: 10 * time.Millisecond, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out})
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -113,8 +113,10 @@ func TestHungReadIsAFailedPollAndNeverOverlaps(t *testing.T) {
 // counted where the runner recovers it, not just turned into a failed poll.
 func TestAdapterPanicIsCounted(t *testing.T) {
 	var c stats.Counters
-	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){panicRead, okSnap}}, "asc-1",
-		5*time.Millisecond, 0, synth.NewEngine(synth.NewSignalDiffer()), func([]model.Event) {}, &c)
+	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){panicRead, okSnap}}, Config{
+		DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Counters: &c,
+	})
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -127,5 +129,29 @@ func TestAdapterPanicIsCounted(t *testing.T) {
 	<-done
 	if got := c.AdapterPanics.Load(); got != 1 {
 		t.Fatalf("AdapterPanics = %d, want 1", got)
+	}
+}
+
+// Every poll outcome reaches the device tracker /status and readiness read:
+// a failure, then a success that latches readiness.
+func TestPollOutcomesReachTheDeviceTracker(t *testing.T) {
+	devices := stats.NewDevices([]string{"asc-1"})
+	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){failRead, okSnap}}, Config{
+		DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Devices: devices,
+	})
+	r.SetJitter(func(time.Duration) time.Duration { return 0 })
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { r.Run(ctx); close(done) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for !devices.EverPolled() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	s := devices.Snapshot()[0]
+	if !devices.EverPolled() || s.LastError != "timeout" || s.LastSuccess.IsZero() {
+		t.Fatalf("tracker = %+v (ever polled %v); want the failure and then the success", s, devices.EverPolled())
 	}
 }

@@ -235,6 +235,9 @@ func (p *Publisher) Enqueue(env cloudevents.Envelope, deviceID string) error {
 // bucket, ADR 0017).
 func (p *Publisher) JetStream() jetstream.JetStream { return p.js }
 
+// Connected reports whether the broker connection is up right now.
+func (p *Publisher) Connected() bool { return p.nc.IsConnected() }
+
 // Stats returns the counters and the current queue depth.
 func (p *Publisher) Stats() Stats {
 	p.mu.Lock()

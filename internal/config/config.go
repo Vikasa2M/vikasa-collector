@@ -5,6 +5,8 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -58,6 +60,11 @@ type Config struct {
 	ModelVersion string   `yaml:"model_version"`
 	Subject      Subject  `yaml:"subject"`
 	Devices      []Device `yaml:"devices"`
+
+	// Revision identifies the config file's exact bytes (a SHA-256 prefix),
+	// so fleet tooling can tell which config a running collector loaded.
+	// Set by Load; not a YAML field.
+	Revision string `yaml:"-"`
 }
 
 // deviceIDRe is the wire's device-id pattern. CollectorID rides in observed-by,
@@ -106,6 +113,8 @@ func Load(path string, reg *adapter.Registry) (*Config, error) {
 	if err := cfg.validate(reg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
+	sum := sha256.Sum256(raw)
+	cfg.Revision = hex.EncodeToString(sum[:6])
 	return cfg, nil
 }
 

@@ -16,7 +16,7 @@ Three directions, deliberately asymmetric:
 
 | Direction | Mechanism | Exists today |
 |---|---|---|
-| **Local** — supervisor and on-site technician | HTTP on loopback | no |
+| **Local** — supervisor and on-site technician | HTTP on loopback | yes, §1 (`internal/manage`), less `sd_notify` and expected-version drift |
 | **Outbound** — fleet observability | events on the bus | partly |
 | **Inbound** — desired state | config file, no control channel | n/a |
 
