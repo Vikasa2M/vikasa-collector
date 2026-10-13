@@ -14,6 +14,7 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/synth"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
@@ -38,6 +39,8 @@ type Runner struct {
 	// is non-nil that Read is still running, and no new one is started:
 	// adapters may assume they are never read concurrently.
 	pending chan readResult
+
+	counters *stats.Counters
 }
 
 type readResult struct {
@@ -48,13 +51,17 @@ type readResult struct {
 // New builds a Runner. timeout==0 defaults to interval. A non-positive
 // interval panics, as time.NewTicker does: config.Load rejects one at boot,
 // so reaching here with it is a programming error, not an operator one.
+// c receives the runner's counts (adapter panics); nil keeps them private.
 func New(dev adapter.StateReader, deviceID string, interval, timeout time.Duration,
-	engine *synth.Engine, out func([]model.Event)) *Runner {
+	engine *synth.Engine, out func([]model.Event), c *stats.Counters) *Runner {
 	if interval <= 0 {
 		panic(fmt.Sprintf("runner.New: non-positive poll interval %v for device %s", interval, deviceID))
 	}
 	if timeout <= 0 {
 		timeout = interval
+	}
+	if c == nil {
+		c = new(stats.Counters)
 	}
 	return &Runner{
 		dev: dev, deviceID: deviceID,
@@ -62,7 +69,7 @@ func New(dev adapter.StateReader, deviceID string, interval, timeout time.Durati
 		// its kind, or report one that disagrees with its registration.
 		deviceKind: dev.Descriptor().DeviceKind,
 		interval:   interval, timeout: timeout,
-		engine: engine, out: out,
+		engine: engine, out: out, counters: c,
 		now:    time.Now,
 		jitter: rand.N[time.Duration],
 	}
@@ -166,6 +173,7 @@ func (r *Runner) read(pctx context.Context) (*model.Snapshot, error) {
 func (r *Runner) readGuarded(ctx context.Context) (snap *model.Snapshot, err error) {
 	defer func() {
 		if p := recover(); p != nil {
+			r.counters.AdapterPanics.Add(1)
 			snap, err = nil, fmt.Errorf("adapter panic: %v", p)
 		}
 	}()

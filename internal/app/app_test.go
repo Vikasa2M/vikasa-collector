@@ -17,6 +17,7 @@ import (
 
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/wire"
 	"github.com/Vikasa2M/vikasa-collector/internal/wire/health"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
@@ -195,6 +196,7 @@ func TestRunRejectsUnparseableSubjectTemplate(t *testing.T) {
 func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
+	var counters stats.Counters
 
 	// Only the health emitter is wired, so a domain event finds no claimant.
 	emitters := []wire.Emitter{health.NewHealthEmitter()}
@@ -204,8 +206,12 @@ func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	}
 	// pub is nil: safe, because the drop path returns before touching the
 	// publisher.
-	encodeAndEnqueue(log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
+	encodeAndEnqueue(log, nil, &counters, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
 
+	// Loud means logged AND counted (the wire.Emitter contract: "metric + log").
+	if n := counters.DroppedNoEmitter.Load(); n != 1 {
+		t.Errorf("DroppedNoEmitter = %d, want 1", n)
+	}
 	got := buf.String()
 	if !strings.Contains(got, "event dropped") {
 		t.Fatalf("an unclaimed domain event must be dropped LOUDLY; log was: %q", got)
@@ -241,8 +247,12 @@ func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
 		Base: model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
 		Mode: model.ModeNormal,
 	}
-	encodeAndEnqueue(log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
+	var counters stats.Counters
+	encodeAndEnqueue(log, nil, &counters, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
 		[]wire.Emitter{failingEmitter{}}, ev)
+	if n := counters.EncodeErrors.Load(); n != 1 {
+		t.Errorf("EncodeErrors = %d, want 1", n)
+	}
 
 	if got := buf.String(); !strings.Contains(got, "emit failed") || !strings.Contains(got, "device=asc-1") {
 		t.Fatalf("injected logger got %q; want an emit-failed line naming device=asc-1", got)

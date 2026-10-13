@@ -17,13 +17,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/subject"
 )
 
@@ -40,6 +40,10 @@ type tuning struct {
 	backoffMax     time.Duration
 	publishTimeout time.Duration // one JetStream publish, ack included
 	reconnectWait  time.Duration
+
+	// counters receives every count; nil means private counters. Carried
+	// here so it is set before the drainer starts.
+	counters *stats.Counters
 }
 
 var defaults = tuning{
@@ -50,8 +54,9 @@ var defaults = tuning{
 	reconnectWait:  time.Second,
 }
 
-// Stats are cumulative since Start, except Queued, which is the current
-// queue depth.
+// Stats is the publisher's view of its counters (cumulative since Start, or
+// since boot when they are the collector's shared Counters), plus Queued,
+// the current queue depth.
 type Stats struct {
 	Published        uint64
 	QueueDropped     uint64 // oldest event evicted because the queue was full
@@ -79,7 +84,7 @@ type Publisher struct {
 	stop context.CancelFunc // hard stop for the drainer
 	done chan struct{}      // closed when the drainer exits
 
-	published, queueDropped, permanentDropped, shutdownDropped atomic.Uint64
+	counters *stats.Counters
 }
 
 // StreamNameForBinding derives a stream name from its subject filter, so the
@@ -103,8 +108,13 @@ func StreamNameForBinding(binding string) string {
 // (ADR 0011), with subject filters derived from the template so grammar and
 // capture cannot disagree — are provisioned on connect and again whenever a
 // publish finds one missing.
-func Start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []string, log *slog.Logger) (*Publisher, error) {
-	return start(ctx, url, tmpl, ceTypes, log, defaults)
+//
+// c receives the publisher's counts (published, and the three losses); nil
+// keeps them private, readable through Stats.
+func Start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []string, log *slog.Logger, c *stats.Counters) (*Publisher, error) {
+	tune := defaults
+	tune.counters = c
+	return start(ctx, url, tmpl, ceTypes, log, tune)
 }
 
 func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []string, log *slog.Logger, tune tuning) (*Publisher, error) {
@@ -120,6 +130,9 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 	}
 	if log == nil {
 		log = slog.Default()
+	}
+	if tune.counters == nil {
+		tune.counters = new(stats.Counters)
 	}
 	safe := redactURL(url) // the only form of url that may be logged or returned
 	scrub := scrubber(url)
@@ -155,7 +168,7 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 	}
 	dctx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	p := &Publisher{
-		nc: nc, js: js, tmpl: tmpl, bindings: bindings, log: log, tune: tune, scrub: scrub,
+		nc: nc, js: js, tmpl: tmpl, bindings: bindings, log: log, tune: tune, scrub: scrub, counters: tune.counters,
 		wake: make(chan struct{}, 1), stop: stop, done: make(chan struct{}),
 	}
 	go p.drain(dctx)
@@ -205,7 +218,7 @@ func (p *Publisher) Enqueue(env cloudevents.Envelope, deviceID string) error {
 	if len(p.queue) >= p.tune.capacity {
 		p.queue[0] = nil
 		p.queue = p.queue[1:]
-		p.queueDropped.Add(1)
+		p.counters.DroppedQueueFull.Add(1)
 	}
 	p.queue = append(p.queue, msg)
 	p.mu.Unlock()
@@ -223,10 +236,10 @@ func (p *Publisher) Stats() Stats {
 	queued := len(p.queue)
 	p.mu.Unlock()
 	return Stats{
-		Published:        p.published.Load(),
-		QueueDropped:     p.queueDropped.Load(),
-		PermanentDropped: p.permanentDropped.Load(),
-		ShutdownDropped:  p.shutdownDropped.Load(),
+		Published:        p.counters.EventsPublished.Load(),
+		QueueDropped:     p.counters.DroppedQueueFull.Load(),
+		PermanentDropped: p.counters.DroppedUnpublishable.Load(),
+		ShutdownDropped:  p.counters.DroppedAtShutdown.Load(),
 		Queued:           queued,
 	}
 }
@@ -255,7 +268,7 @@ func (p *Publisher) Drain(ctx context.Context) {
 	p.queue = nil
 	p.mu.Unlock()
 	if left > 0 {
-		p.shutdownDropped.Add(uint64(left))
+		p.counters.DroppedAtShutdown.Add(uint64(left))
 		p.log.Warn("shutdown drain window closed with events unpublished", "dropped", left)
 	}
 	p.nc.Close()
@@ -275,7 +288,7 @@ func (p *Publisher) drain(ctx context.Context) {
 	var inflight *nats.Msg
 	defer func() {
 		if inflight != nil {
-			p.shutdownDropped.Add(1)
+			p.counters.DroppedAtShutdown.Add(1)
 		}
 	}()
 
@@ -336,11 +349,11 @@ func (p *Publisher) drain(ctx context.Context) {
 		cancel()
 		switch {
 		case err == nil:
-			p.published.Add(1)
+			p.counters.EventsPublished.Add(1)
 			inflight = nil
 			recovered()
 		case permanent(err):
-			p.permanentDropped.Add(1)
+			p.counters.DroppedUnpublishable.Add(1)
 			p.log.Error("event dropped: broker will never accept it", "subject", inflight.Subject, "err", err)
 			inflight = nil
 		default:

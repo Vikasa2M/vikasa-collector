@@ -60,7 +60,7 @@ func collect(t *testing.T, script []func() (*model.Snapshot, error), needAtLeast
 		}
 	}
 	r := New(&scriptedAdapter{script: script}, "asc-1", 5*time.Millisecond, 0,
-		synth.NewEngine(synth.NewSignalDiffer()), out)
+		synth.NewEngine(synth.NewSignalDiffer()), out, nil)
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -162,7 +162,7 @@ func TestRunnerStampsDeviceKindFromDescriptor(t *testing.T) {
 	// Fails once (-> health event), then succeeds (-> domain event via synth).
 	script := []func() (*model.Snapshot, error){failRead, okSnap}
 	r := New(&scriptedAdapter{script: script}, "asc-1", 5*time.Millisecond, 0,
-		synth.NewEngine(synth.NewSignalDiffer()), out)
+		synth.NewEngine(synth.NewSignalDiffer()), out, nil)
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -206,7 +206,7 @@ func TestNewRejectsNonPositiveInterval(t *testing.T) {
 					t.Fatalf("New(interval=%v) panic = %q, want one naming the interval", interval, msg)
 				}
 			}()
-			New(&scriptedAdapter{}, "asc-1", interval, 0, synth.NewEngine(), func([]model.Event) {})
+			New(&scriptedAdapter{}, "asc-1", interval, 0, synth.NewEngine(), func([]model.Event) {}, nil)
 		})
 	}
 }
