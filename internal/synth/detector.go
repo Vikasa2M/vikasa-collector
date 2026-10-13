@@ -23,7 +23,7 @@ type detectorDiffer struct {
 	last map[string]time.Time // deviceID -> previous SampledAt
 }
 
-func (d *detectorDiffer) Kind() model.Kind { return model.KindDetectorSamples }
+func (d *detectorDiffer) Facet() model.Facet { return model.DetectorSamples{} }
 
 func (d *detectorDiffer) Diff(prev, curr model.Facet, base model.Base) []model.Event {
 	// Record this poll's time and recover the previous one. Engine serializes

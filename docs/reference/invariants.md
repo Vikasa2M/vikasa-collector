@@ -122,8 +122,12 @@ read as if the device reported a new value — clearing a fault that never
 cleared, or reporting a mode change that never happened, because the poll
 came back empty instead of wrong. The mechanism lives in
 `synth.Engine.Apply` (`internal/synth/synth.go`): a facet that failed to
-read is simply never present in `Snapshot.Facets`, so its differ is never
-invoked and the engine's remembered previous state survives untouched.
+read is never present in `Snapshot.Facets`, so its differ is never invoked
+and the engine's remembered previous state survives untouched. `Apply`
+does not rely on adapters getting that right: a facet the snapshot also
+lists in `Snapshot.Errors` is skipped (`TestApplyIgnoresAFacetItsSnapshotReportsFailed`),
+and so is a facet whose Go type is not its differ's
+(`TestApplyRejectsAWrongTypedFacet`) — neither is evidence.
 
 **Every registered differ has a failed-read test** — the nine named in the
 table row above. The four in `internal/synth/failed_read_test.go` go one
