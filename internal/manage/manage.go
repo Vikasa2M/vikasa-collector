@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/stats"
@@ -49,7 +50,8 @@ type Broker struct {
 	Queued    int  `json:"queued"`
 }
 
-// Handler serves the three endpoints. Every route is GET-only.
+// Handler serves the three endpoints. Every route is GET-only, and only
+// requests addressed to a loopback host are answered (see loopbackOnly).
 func Handler(src Source) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -71,7 +73,39 @@ func Handler(src Source) http.Handler {
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(src.Status())
 	})
-	return mux
+	return loopbackOnly(mux)
+}
+
+// loopbackOnly refuses any request whose Host header is not a loopback
+// name. Binding to loopback keeps other machines out, but not DNS
+// rebinding: a page in a browser on this host can re-point its own domain
+// at 127.0.0.1 and read the surface over loopback. Its requests still carry
+// that domain in Host, so they are refused with 421.
+func loopbackOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(r.Host) {
+			http.Error(w, "misdirected request: this surface answers only loopback hosts", http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loopbackHost reports whether a Host header names localhost or a loopback
+// IP, with or without a port. Only an exact "localhost" counts by name: a
+// name that merely contains it, or resolves to loopback, is exactly what a
+// rebinding attack uses.
+func loopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ValidateAddr accepts "" (the surface disabled) or a host:port whose host

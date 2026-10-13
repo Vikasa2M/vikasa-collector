@@ -21,8 +21,10 @@ func (f *fakeSource) Status() Status {
 
 func get(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+	req.Host = "127.0.0.1:9471" // httptest defaults to example.com, which is refused
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), method, path, nil))
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -91,6 +93,41 @@ func TestValidateAddrIsLoopbackOnly(t *testing.T) {
 	} {
 		if err := ValidateAddr(addr); (err == nil) != ok {
 			t.Errorf("ValidateAddr(%q) = %v, want ok=%v", addr, err, ok)
+		}
+	}
+}
+
+// DNS rebinding: a page in a browser on this host can re-point its own
+// domain at 127.0.0.1 and read the surface — the loopback bind alone does
+// not stop it, because the request arrives over loopback. The Host header
+// still names the attacker's domain, so only loopback hosts are answered.
+func TestOnlyLoopbackHostHeadersAreServed(t *testing.T) {
+	h := Handler(&fakeSource{})
+	for host, want := range map[string]int{
+		"127.0.0.1:9471":         http.StatusOK,
+		"localhost:9471":         http.StatusOK,
+		"[::1]:9471":             http.StatusOK,
+		"127.0.0.1":              http.StatusOK,
+		"evil.example:9471":      http.StatusMisdirectedRequest,
+		"evil.example":           http.StatusMisdirectedRequest,
+		"10.0.0.5:9471":          http.StatusMisdirectedRequest,
+		"localhost.evil.example": http.StatusMisdirectedRequest,
+		"127.0.0.1.nip.io:9471":  http.StatusMisdirectedRequest,
+	} {
+		for _, path := range []string{"/status", "/readyz", "/livez"} {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+			req.Host = host
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if path == "/readyz" && want == http.StatusOK {
+				want = http.StatusServiceUnavailable // fakeSource is not ready
+			}
+			if rec.Code != want {
+				t.Errorf("GET %s with Host %q = %d, want %d", path, host, rec.Code, want)
+			}
+			if path == "/readyz" && want == http.StatusServiceUnavailable {
+				want = http.StatusOK
+			}
 		}
 	}
 }

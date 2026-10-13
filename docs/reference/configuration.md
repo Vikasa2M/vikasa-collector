@@ -59,6 +59,11 @@ With `-status-addr` set (the default), the collector serves three read-only
 | `/readyz` | Has this version proven itself: at least one successful device poll? **Latches** — a later outage never makes it unready — and does not depend on the broker. For gating a rollout. | `200` ready, `503` not yet |
 | `/status` | JSON for a technician: `version`, `config_revision` (a SHA-256 prefix of the config file's bytes), `boot_id`, `uptime_s`, `ready`, `broker` (`connected`, `queued`), the collector's `counters`, and per device its last success, last error and consecutive failures. | `200` |
 
+Requests whose `Host` header is not `localhost` or a loopback IP are
+refused with `421`. The loopback bind keeps other machines out; the `Host`
+check also keeps out DNS rebinding, where a page in a browser on the same
+host points its own domain at 127.0.0.1.
+
 A supervisor's start-up grace must exceed twice the longest `poll_interval`:
 the first poll comes no sooner than one interval plus start jitter.
 
