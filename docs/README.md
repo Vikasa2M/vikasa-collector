@@ -144,27 +144,10 @@ Phase 1 — the readiness signal, broker-absent tolerance, and expected-version
 drift reporting, all prerequisites for health-gated rollback. Evidence: ledger
 `:1376-1392`.
 
-**ADR 0014's one sanctioned exception — tolerating an absent broker at
-startup — is not implemented.** ADR 0014 carves out exactly one narrow
-exception to "config is the trust boundary": a broker that is not yet
-reachable at boot is a transient, not a config error, so it should retry
-rather than fail hard. `publish.Connect` (`internal/publish/publish.go`)
-still dials NATS and provisions every stream during boot, and
-`internal/app/app.go` returns its error straight out of `Run`, so a broker
-that is slow to come up makes the collector exit like any other boot-time
-failure. In a cabinet where the collector and the broker start together
-that is a race the collector can lose, and under ADR 0012's health-gated
-rollback a lost race reads as a failed update. Both the ADR and
-[`invariants.md`'s config row](reference/invariants.md#config-is-the-trust-boundary-boot-fails-on-the-unrecognized)
-say so rather than implying the exception exists. *Closing it:* fleet-plan
-Phase 1's broker-absent tolerance — connect in the background and let the
-collector reach a running state without a broker, instead of treating the
-dial as part of boot validation.
-
 **Unclaimed wire-emitter events drop without a metric.** The bar is stated
 on the `wire.Emitter` interface itself (`internal/wire/emitter.go`): an event
 no emitter claims "is dropped LOUDLY (metric + log), never silently." It is
-half met. `internal/app/app.go`'s `encodeAndPublish` calls `slog.Warn` on the
+half met. `internal/app/app.go`'s `encodeAndEnqueue` logs a warning on the
 no-emitter-claimed path but emits no metric, and there is no metrics or
 observability library anywhere in the tree (`internal/` and `sdk/` import
 neither `prometheus`, `expvar`, nor `otel`).

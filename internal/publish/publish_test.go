@@ -36,11 +36,11 @@ func TestPublishRoundTripAndDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Connect(ctx, ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"})
+	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"}, quiet(), fast(100))
 	if err != nil {
-		t.Fatalf("Connect: %v", err)
+		t.Fatalf("start: %v", err)
 	}
-	defer p.Close()
+	defer drainBounded(p)
 
 	at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
 	ceType := "openits-collector.health.collector-started.v1"
@@ -53,12 +53,12 @@ func TestPublishRoundTripAndDedup(t *testing.T) {
 	})
 
 	// Publish the identical envelope twice: dedup must keep exactly one.
-	if err := p.Publish(ctx, env, ceType, "cab-1"); err != nil {
-		t.Fatalf("Publish 1: %v", err)
+	for range 2 {
+		if err := p.Enqueue(env, "cab-1"); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
 	}
-	if err := p.Publish(ctx, env, ceType, "cab-1"); err != nil {
-		t.Fatalf("Publish 2: %v", err)
-	}
+	waitFor(t, "both publishes acked", func() bool { return p.Stats().Published == 2 })
 
 	nc, err := nats.Connect(ns.ClientURL())
 	if err != nil {
@@ -121,11 +121,11 @@ func TestPublishUsesCustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Connect(ctx, ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"})
+	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"}, quiet(), fast(100))
 	if err != nil {
-		t.Fatalf("Connect: %v", err)
+		t.Fatalf("start: %v", err)
 	}
-	defer p.Close()
+	defer drainBounded(p)
 
 	at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
 	ceType := "openits-collector.health.collector-started.v1"
@@ -136,9 +136,10 @@ func TestPublishUsesCustomTemplate(t *testing.T) {
 		OccurredAt:  at,
 		Data:        []byte(`{"version":"dev"}`),
 	})
-	if err := p.Publish(ctx, env, ceType, "cab-1"); err != nil {
-		t.Fatalf("Publish: %v", err)
+	if err := p.Enqueue(env, "cab-1"); err != nil {
+		t.Fatalf("Enqueue: %v", err)
 	}
+	waitFor(t, "the publish acked", func() bool { return p.Stats().Published == 1 })
 
 	nc, err := nats.Connect(ns.ClientURL())
 	if err != nil {
@@ -176,7 +177,7 @@ func TestStreamNameForBinding(t *testing.T) {
 	}
 }
 
-func TestConnectProvisionsAStreamPerNamespace(t *testing.T) {
+func TestStartProvisionsAStreamPerNamespace(t *testing.T) {
 	ns := startNATS(t)
 	ctx := context.Background()
 	tmpl, err := subject.New(subject.Config{},
@@ -184,14 +185,14 @@ func TestConnectProvisionsAStreamPerNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Connect(ctx, ns.ClientURL(), tmpl, []string{
+	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{
 		"openits.signal-control.fault-raised.v1",
 		"openits-collector.health.collector-started.v1",
-	})
+	}, quiet(), fast(100))
 	if err != nil {
-		t.Fatalf("Connect: %v", err)
+		t.Fatalf("start: %v", err)
 	}
-	defer p.Close()
+	defer drainBounded(p)
 
 	nc, err := nats.Connect(ns.ClientURL())
 	if err != nil {
@@ -202,6 +203,14 @@ func TestConnectProvisionsAStreamPerNamespace(t *testing.T) {
 
 	// Each family gets its OWN stream: that is what makes differing retention
 	// and differing subject permissions expressible at all.
+	waitFor(t, "both streams provisioned", func() bool {
+		for _, n := range []string{"OPENITS-US-GA-METRO-D01", "OPENITS-COLLECTOR-US-GA-METRO-D01"} {
+			if _, err := js.Stream(ctx, n); err != nil {
+				return false
+			}
+		}
+		return true
+	})
 	for name, wantSubject := range map[string]string{
 		"OPENITS-US-GA-METRO-D01":           "openits.us-ga.metro.d01.>",
 		"OPENITS-COLLECTOR-US-GA-METRO-D01": "openits-collector.us-ga.metro.d01.>",

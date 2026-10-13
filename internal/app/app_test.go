@@ -144,7 +144,7 @@ devices:
 // which fails parseTokens before ValidateCETypes is ever reached).
 //
 // It does NOT exercise the ordering guarantee that ValidateCETypes runs
-// before publish.Connect: no test does, because Run hardcodes both its
+// before publish.Start: no test does, because Run hardcodes both its
 // emitter chain and its template with no injection point, so a template that
 // fails only inside ValidateCETypes (and not in New) can't be constructed
 // from outside this package. ValidateCETypes' own failure paths are covered
@@ -204,7 +204,7 @@ func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	}
 	// pub is nil: safe, because the drop path returns before touching the
 	// publisher.
-	encodeAndPublish(context.Background(), log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
+	encodeAndEnqueue(log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"}, emitters, ev)
 
 	got := buf.String()
 	if !strings.Contains(got, "event dropped") {
@@ -241,7 +241,7 @@ func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
 		Base: model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
 		Mode: model.ModeNormal,
 	}
-	encodeAndPublish(context.Background(), log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
+	encodeAndEnqueue(log, nil, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
 		[]wire.Emitter{failingEmitter{}}, ev)
 
 	if got := buf.String(); !strings.Contains(got, "emit failed") || !strings.Contains(got, "device=asc-1") {

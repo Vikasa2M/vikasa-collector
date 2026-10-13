@@ -229,9 +229,10 @@ any unattended rollout.
   collector polling happily while the local broker is briefly down is working
   and will drain when the broker returns. Folding broker connectivity into
   readiness would produce rollbacks for the wrong reason.
-- **Tolerate the broker being absent at startup.** `publish.Connect` currently
-  dials NATS and provisions streams during boot, so a broker that is slow to
-  come up makes the collector exit — which under health-gated rollback reads as
+- **Tolerate the broker being absent at startup.** *Done — ADR 0020;
+  `publish.Start` connects in the background.* Before it, `publish.Connect`
+  dialled NATS and provisioned streams during boot, so a broker that was slow
+  to come up made the collector exit — which under health-gated rollback reads as
   a failed update and triggers a spurious revert. A missing peer is a transient,
   not a config error. This is a narrow exception to "config is the trust
   boundary" rather than a weakening of it: bad config still fails hard, an

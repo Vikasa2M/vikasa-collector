@@ -107,10 +107,12 @@ here `key{"mode-changed", "asc"}` — which resolves to
 (declining the event instead if the mode has no mappable controller-mode
 identity upstream).
 
-**4. Publisher.** `internal/app.encodeAndPublish` wraps the encoded payload
-in a CloudEvents envelope and calls `Publisher.Publish` with the ce-type and
-device ID. `Publisher.Publish` renders the subject from the operator's
-template (`internal/subject/subject.go`) and publishes. With the default
+**4. Publisher.** `internal/app.encodeAndEnqueue` wraps the encoded payload
+in a CloudEvents envelope and calls `Publisher.Enqueue` with it and the
+device ID. `Enqueue` renders the subject from the operator's template
+(`internal/subject/subject.go`) and queues the message; one drainer
+goroutine publishes the queue in order, waiting out a broker that is absent
+or restarting ([ADR 0020](../adr/0020-broker-absence-is-latency.md)). With the default
 seven-token template and a device ID of `asc-main-and-5th` on tenant
 `region=us-ga, agency=metro-atlanta, agency_unit=d01`, the rendered subject
 is:

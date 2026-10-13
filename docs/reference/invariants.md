@@ -160,13 +160,12 @@ core, so each adapter enforces the same rule on its own keys; `ntcip`'s
 keys and known keys of the wrong type.
 
 ADR 0014 names one sanctioned exception — tolerating an absent broker at
-startup as transient rather than a config error — but that exception is
-**planned, not implemented**. `publish.Connect`
-(`internal/publish/publish.go`) still dials NATS and provisions streams
-during boot today, so a broker that is slow to come up currently makes the
-collector exit, same as any other boot-time failure. Nothing in the code
-carves out the exception yet — it is tracked in the
-[gap list](../README.md#known-gaps-and-successor-work).
+startup as transient rather than a config error — and
+[ADR 0020](../adr/0020-broker-absence-is-latency.md) implements it:
+`publish.Start` (`internal/publish/publish.go`) connects in the background
+and never fails on an absent broker, so the collector boots, polls, and
+queues until NATS appears (`TestRunBootsWithoutABrokerAndPublishesWhenOneArrives`).
+Bad config still fails hard; only the missing peer waits.
 
 ## Subjects are operator-configurable; the CloudEvents envelope stays canonical
 

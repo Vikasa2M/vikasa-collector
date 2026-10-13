@@ -222,7 +222,7 @@ kind has no case in the emitter's routing switch at all, the shared
 default (`return nil, false, nil`) declines it the same way.
 
 Both drop paths converge on the same place: `internal/app/app.go`'s
-`encodeAndPublish` logs a `slog.Warn` — `"event dropped: no ce-source
+`encodeAndEnqueue` logs a `slog.Warn` — `"event dropped: no ce-source
 entity kind for device kind"` or `"event dropped: no emitter for domain
 event"` — and returns without publishing. **That is the part that
 surprises people: these drops are logged, but they are not counted.**

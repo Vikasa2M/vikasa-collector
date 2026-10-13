@@ -212,7 +212,7 @@ func TestBindingDerivation(t *testing.T) {
 // The guard moved from New() to Bindings(): the namespace is now itself a
 // per-event token, so "does the leftmost token vary" can only be answered
 // after it has been substituted. Both are still boot-time — Bindings is
-// called by publish.Connect during startup — so a bad grammar is still a
+// called by publish.Start during startup — so a bad grammar is still a
 // refusal to start rather than an unroutable event later.
 func TestBindingsRejectTemplatesWithNoStaticPrefix(t *testing.T) {
 	cases := []struct {
