@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -253,4 +254,47 @@ func TestDrainGivesUpAtItsDeadlineAndCountsTheRest(t *testing.T) {
 	if err := p.Enqueue(envN(9, nil), "cab-1"); err == nil {
 		t.Fatal("Enqueue after Drain succeeded; a drained publisher must refuse new events")
 	}
+}
+
+// A NATS URL can carry credentials (user:pass@ or a bare token@). Nothing
+// the publisher logs or returns may contain them.
+func TestCredentialsInTheURLAreNeverLogged(t *testing.T) {
+	port := freePort(t)
+	startNATSOn(t, port)
+	var buf lockedBuffer // NATS callbacks log from their own goroutines
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	url := fmt.Sprintf("nats://alice:hunter2@127.0.0.1:%d,nats://s3cr3t-token@127.0.0.1:%d", port, port)
+	p, err := start(t.Context(), url, testTemplate(t), []string{healthType}, log, fast(10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "a connection log line", func() bool { return strings.Contains(buf.String(), "broker") })
+	drainBounded(p)
+
+	for _, secret := range []string{"hunter2", "alice", "s3cr3t-token"} {
+		if strings.Contains(buf.String(), secret) {
+			t.Fatalf("log contains %q:\n%s", secret, buf.String())
+		}
+	}
+	if got := redactURL("::not a url::"); strings.Contains(got, "not a url") {
+		t.Fatalf("an unparseable URL was echoed back: %q", got)
+	}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

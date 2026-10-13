@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,7 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 	if log == nil {
 		log = slog.Default()
 	}
+	safe := redactURL(url) // the only form of url that may be logged or returned
 	nc, err := nats.Connect(url,
 		nats.Name("vikasa-collector"),
 		nats.RetryOnFailedConnect(true),
@@ -126,16 +128,16 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 		// No client-side reconnect buffer: while disconnected a publish fails
 		// fast and the event waits in our queue, which is bounded and counted.
 		nats.ReconnectBufSize(-1),
-		nats.ConnectHandler(func(*nats.Conn) { log.Info("broker connected", "url", url) }),
-		nats.ReconnectHandler(func(*nats.Conn) { log.Info("broker reconnected", "url", url) }),
+		nats.ConnectHandler(func(*nats.Conn) { log.Info("broker connected", "url", safe) }),
+		nats.ReconnectHandler(func(*nats.Conn) { log.Info("broker reconnected", "url", safe) }),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
-				log.Warn("broker disconnected", "url", url, "err", err)
+				log.Warn("broker disconnected", "url", safe, "err", err)
 			}
 		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("publish: nats %s: %w", url, err)
+		return nil, fmt.Errorf("publish: nats %s: %w", safe, err)
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -398,4 +400,22 @@ func (p *Publisher) provision(ctx context.Context) error {
 // counted so it cannot block everything queued behind it.
 func permanent(err error) bool {
 	return errors.Is(err, nats.ErrMaxPayload) || errors.Is(err, nats.ErrBadSubject)
+}
+
+// redactURL makes a NATS server list safe to log. It drops each URL's
+// userinfo outright — URL.Redacted masks only a password, and NATS also
+// accepts a bare token as the username — and replaces anything it cannot
+// parse, since an unparseable string could itself be a secret.
+func redactURL(servers string) string {
+	parts := strings.Split(servers, ",")
+	for i, s := range parts {
+		u, err := neturl.Parse(strings.TrimSpace(s))
+		if err != nil || u.Host == "" {
+			parts[i] = "<unparseable url>"
+			continue
+		}
+		u.User = nil
+		parts[i] = u.String()
+	}
+	return strings.Join(parts, ",")
 }
