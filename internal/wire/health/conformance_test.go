@@ -37,9 +37,9 @@ var samples = []model.Event{
 		Base:      model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
 		Reachable: false, Reason: "read timeout", ConsecutiveFailures: 2,
 	},
-	model.CollectorStarted{
-		Base: model.Base{OccurredAt: time.Now().UTC()}, Version: "dev",
-	},
+	Started{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance},
+	Stopping{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance, Uptime: time.Minute},
+	Heartbeat{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance, Uptime: time.Hour, Resource: ReadResource()},
 }
 
 func loadAsyncAPI(t *testing.T) asyncAPI {

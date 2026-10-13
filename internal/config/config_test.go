@@ -340,3 +340,21 @@ func TestLoadRejectsUnsupportedModelVersion(t *testing.T) {
 		t.Fatalf("Load() error = %v, want one naming the bad value and the supported ones", err)
 	}
 }
+
+// heartbeat_interval defaults to ADR 0019's 300s, and a value too small to be
+// a fleet-health cadence is refused at boot rather than flooding the uplink.
+func TestHeartbeatInterval(t *testing.T) {
+	cfg, err := Load(write(t, validYAML), regWith("ntcip", "asc"))
+	if err != nil || cfg.HeartbeatInterval != 300*time.Second {
+		t.Fatalf("default = %v (err %v), want 300s", cfg.HeartbeatInterval, err)
+	}
+	cfg, err = Load(write(t, validYAML+"heartbeat_interval: 60s\n"), regWith("ntcip", "asc"))
+	if err != nil || cfg.HeartbeatInterval != time.Minute {
+		t.Fatalf("60s = %v (err %v)", cfg.HeartbeatInterval, err)
+	}
+	for _, bad := range []string{"5s", "-1m"} {
+		if _, err := Load(write(t, validYAML+"heartbeat_interval: "+bad+"\n"), regWith("ntcip", "asc")); err == nil {
+			t.Errorf("heartbeat_interval %s accepted", bad)
+		}
+	}
+}

@@ -171,7 +171,7 @@ urn:openits:<entity-kind>:<region>:<agency>:<agency_unit>:<id>
 
 `<entity-kind>` is the profile's vocabulary, not the collector's device-kind
 string — an `asc` device appears as `controller`, a `dms` as `sign`. On
-collector-level events (`collector-started`) there is no device, so the
+the collector's own events (`openits-collector.instance.*`) there is no device, so the
 entity kind is `collector` and the id segment is the deployment's configured
 `site`.
 

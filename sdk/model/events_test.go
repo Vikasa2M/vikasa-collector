@@ -19,7 +19,6 @@ func TestEventKindsAndAccessors(t *testing.T) {
 		{PreemptionActivated{Base: b, Source: "railroad"}, "preemption-activated"},
 		{PreemptionCleared{Base: b}, "preemption-cleared"},
 		{DeviceStatusChanged{Base: b, Reachable: false, Reason: "timeout", ConsecutiveFailures: 1}, "device-status-changed"},
-		{CollectorStarted{Base: Base{OccurredAt: at}, Version: "dev"}, "collector-started"},
 	}
 	for _, c := range cases {
 		if got := c.ev.EventKind(); got != c.kind {

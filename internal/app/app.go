@@ -47,7 +47,7 @@ var closeTimeout = 2 * time.Second
 type Options struct {
 	// NATSURL is the cabinet-local broker.
 	NATSURL string
-	// Version is stamped into collector-started.
+	// Version is stamped into the collector's own instance events.
 	Version string
 	// Logger receives every line the collector writes. Nil means
 	// slog.Default(); main always sets it, so its flags decide format and
@@ -119,7 +119,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 
 	// Every adapter is built before anything is announced or started, so a
 	// device that cannot be built fails boot cleanly: no runner is polling,
-	// no collector-started has gone out, and the adapters already built are
+	// no started event has gone out, and the adapters already built are
 	// closed. Building inside the runner-start loop left devices ahead of
 	// the broken one polling against a publisher Run was about to close.
 	readers, err := buildReaders(log, cfg.Devices, reg)
@@ -162,10 +162,12 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		}
 	}
 
-	// Boot event.
-	sink([]model.Event{model.CollectorStarted{
-		Base: model.Base{OccurredAt: time.Now().UTC()}, Version: opts.Version,
-	}})
+	// The collector's identity, stated in every instance event (ADR 0019
+	// clause 7), and the restart record (clause 8).
+	inst := health.Instance{
+		CollectorID: cfg.CollectorID, Version: opts.Version, ConfigRevision: cfg.Revision, BootID: bootID,
+	}
+	sink([]model.Event{health.Started{Base: model.Base{OccurredAt: started}, Instance: inst}})
 
 	engine := synth.NewEngine(
 		synth.NewSignalDiffer(),
@@ -203,6 +205,11 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		})
 		wg.Go(func() { r.Run(ctx) })
 	}
+	heartbeatInterval := cfg.HeartbeatInterval
+	if heartbeatInterval == 0 {
+		heartbeatInterval = config.DefaultHeartbeatInterval
+	}
+	wg.Go(func() { runHeartbeat(ctx, heartbeatInterval, inst, started, counters, sink) })
 
 	<-ctx.Done()
 
@@ -210,6 +217,10 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// blocks), so once they have, nothing else can be queued. Then give the
 	// queue its bounded drain window.
 	wg.Wait()
+	// Best-effort (ADR 0019 clause 8): queued ahead of the drain, so it goes
+	// out whenever the broker can take it within the window.
+	stopAt := time.Now().UTC()
+	sink([]model.Event{health.Stopping{Base: model.Base{OccurredAt: stopAt}, Instance: inst, Uptime: stopAt.Sub(started)}})
 	fctx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), stateFlushTimeout)
 	defer cancelFlush()
 	state.Flush(fctx)

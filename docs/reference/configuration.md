@@ -84,6 +84,7 @@ the first poll comes no sooner than one interval plus start jitter.
 | `devices.id` | string | Yes (per device) | — | Must be non-empty and unique across all devices (`Config.validate`'s per-device loop). |
 | `devices.vendor` | string | Yes (per device) | — | Combined with `device_kind`, must resolve to a registered adapter — registry key `"<vendor>-<device_kind>"` (`reg.Known`, called from `Config.validate`'s per-device loop). |
 | `devices.device_kind` | string | Yes (per device) | — | Validated together with `vendor`, above. |
+| `heartbeat_interval` | duration | No | `300s` | How often the collector publishes `openits-collector.instance.heartbeat.v1` ([ADR 0019](../adr/0019-collector-self-health.md) clause 3). At the default, about 6.5 MB per cabinet per month. Below `10s` fails boot: that is a debugging cadence, not a fleet-health one. Beats land on a stable, per-`collector_id` offset within the interval, so a fleet spreads and each collector's beat stays regular across restarts. |
 | `devices.poll_interval` | duration | No | `5s` | Must not be negative; a zero value is defaulted to `5s` by `Config.validate` rather than treated as "poll as fast as possible". |
 | `devices.connection` | map[string]any | Yes (per device, shape adapter-defined) | — | Opaque to the core; parsed and validated by the selected adapter, not by `Config.validate`. Adapters reject unknown keys and wrong-typed values here too — for `ntcip`, only `snmp.address`, `snmp.community` and `snmp.version` are accepted, all strings (quote a numeric community: `community: "1234"`). |
 
@@ -107,8 +108,8 @@ appear in every CE-source URN. All four compose the default subject grammar.
 half-true version — "site is not in the URN" — is the one that gets someone
 into trouble. It is not one of the triple's segments. But `SourceFor`
 (`internal/cloudevents/subject.go`) falls back to `site` as the URN's
-trailing `<id>` segment whenever the event has no device, which today means
-every `collector-started` health event:
+trailing `<id>` segment whenever the event has no device, which means the
+collector's own `instance.*` events (`started`, `stopping`, `heartbeat`):
 
 ```
 urn:openits:collector:<region>:<agency>:<agency_unit>:<site>

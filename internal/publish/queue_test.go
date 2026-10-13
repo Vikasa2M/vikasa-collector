@@ -19,7 +19,7 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/internal/subject"
 )
 
-const healthType = "openits-collector.health.collector-started.v1"
+const healthType = "openits-collector.instance.started.v1"
 
 // freePort reserves a TCP port for a broker the test starts later.
 func freePort(t *testing.T) int {

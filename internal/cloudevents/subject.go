@@ -68,7 +68,7 @@ func entityKindFor(deviceKind string) (string, bool) {
 		// can legitimately appear as both.
 		return "perception", true
 	case "":
-		// Collector-level events (collector-started) have no device; the
+		// Collector-level events (instance.*) have no device; the
 		// collector itself is the entity.
 		return "collector", true
 	default:

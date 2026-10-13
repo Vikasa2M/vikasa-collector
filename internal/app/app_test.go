@@ -109,7 +109,7 @@ devices:
 	go func() { _ = Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
 
 	want := map[string]bool{
-		"openits-collector.health.collector-started.v1":     false,
+		"openits-collector.instance.started.v1":             false,
 		"openits-collector.health.device-status-changed.v1": false,
 	}
 	deadline := time.After(8 * time.Second)

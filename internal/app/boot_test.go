@@ -62,7 +62,7 @@ func startNATS(t *testing.T) *server.Server {
 // failure must leave nothing running: before this test, devices configured
 // ahead of the broken one were already polling when Run returned, nothing
 // stopped or closed them, and the collector had already announced
-// collector-started for a boot that then failed.
+// a started event for a boot that then failed.
 func TestRunBootFailureLeavesNothingRunning(t *testing.T) {
 	ns := startNATS(t)
 
@@ -225,7 +225,7 @@ func TestRunBootsWithoutABrokerAndPublishesWhenOneArrives(t *testing.T) {
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("collector-started, queued before the broker existed, never reached the stream")
+			t.Fatal("instance.started, queued before the broker existed, never reached the stream")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

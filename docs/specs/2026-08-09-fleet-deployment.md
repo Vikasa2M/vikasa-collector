@@ -301,7 +301,8 @@ any implementation can do it.
 - Desired version per cohort; rollout by tag promotion.
 - Gate on signals already on the bus: the new version published a boot event
   *and* kept its devices reachable for N minutes. Both signals exist today —
-  `CollectorStarted` carries version, `DeviceStatusChanged` carries
+  `instance.started` and `instance.heartbeat` carry version and config
+  revision, `DeviceStatusChanged` carries
   reachability.
 - Halt on cohort failure — noting Ansible already provides this, so it is not
   by itself a reason to build the plane.
