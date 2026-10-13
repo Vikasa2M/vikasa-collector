@@ -37,7 +37,7 @@ type DialConfig struct {
 	Address   string // "host:port"
 	Community string
 	Timeout   time.Duration // default 2s
-	Retries   int           // default 1
+	Retries   int           // 0 means no retries; ntcip sets 1
 	Version   string        // "v1" or "v2c"; empty defaults to v2c
 }
 

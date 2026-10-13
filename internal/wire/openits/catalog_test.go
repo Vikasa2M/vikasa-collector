@@ -100,8 +100,8 @@ const (
 	// at all. Blocked on modelling the device domain, not on a mapping.
 	serviceNotModeled unmappedReason = "service not modelled: no facet, differ or adapter"
 
-	// The event reports a command. The collector commands nothing
-	// (adapter.Commander has no dispatch path), so it never observes one.
+	// The event reports a command. The collector commands nothing (there is
+	// no command path in the SDK, ADR 0021), so it never observes one.
 	describesACommand unmappedReason = "describes a command; the collector issues none"
 
 	// The service is already wired end to end (facet, differ, adapter path,

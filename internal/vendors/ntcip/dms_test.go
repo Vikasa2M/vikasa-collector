@@ -236,7 +236,7 @@ func TestDMSDescriptorCaps(t *testing.T) {
 	if d.Vendor != "ntcip" || d.DeviceKind != "dms" {
 		t.Fatalf("Descriptor = %+v", d)
 	}
-	if !d.Caps.Has(adapter.CapState) || d.Caps.Has(adapter.CapEvents) || d.Caps.Has(adapter.CapCommand) {
+	if d.Caps != adapter.CapState {
 		t.Fatalf("Caps = %v; want CapState only", d.Caps)
 	}
 }

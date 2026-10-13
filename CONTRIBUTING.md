@@ -35,7 +35,7 @@ Adapters are the most common contribution.
 [`docs/how-to/add-a-vendor-adapter.md`](docs/how-to/add-a-vendor-adapter.md)
 is the canonical step-by-step guide; the contract it implements:
 
-- Implement `sdk/adapter.StateReader` (or `EventReader`) returning only
+- Implement `sdk/adapter.StateReader` returning only
   `sdk/model` types, and register a `Descriptor{Vendor, DeviceKind}`.
 - Adapters own their transport entirely (SNMP, HTTP, serial, …) behind an
   opaque `connection` config block.

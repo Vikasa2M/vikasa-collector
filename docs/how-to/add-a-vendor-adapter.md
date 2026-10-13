@@ -157,20 +157,14 @@ watched the code actually do it.
 
 ## Set capability bits to match what you implemented
 
-`Descriptor.Caps` is a bitset (`Capability`, `sdk/adapter/adapter.go`):
-`CapState` for `StateReader`, `CapEvents` for `EventReader`, `CapCommand`
-for the still-dormant `Commander` seam. Set only the bits your adapter
-actually satisfies — `ascDescriptor`'s `Caps: adapter.CapState` in both
-`ntcip-asc` and the tutorial's `acme-asc` is the pattern, because both
-adapters implement `StateReader` and nothing else. Claiming a capability
-your type doesn't implement will not compile (the registration signature
-requires the interface), but claiming a capability your adapter doesn't
-*mean* to support — e.g. leaving `CapCommand` set on a read-only adapter
-copy-pasted from another one — is a review-time mistake, not a
-compile-time one, so check it explicitly before opening the PR. See
-[`pluggability.md`'s "Capability: what an adapter can do" section](../explanation/pluggability.md#capability-what-an-adapter-can-do)
-for the full contract, including a gap worth knowing about before you
-claim `CapEvents`.
+`Descriptor.Caps` is a bitset (`Capability`, `sdk/adapter/adapter.go`) with
+one bit today: `CapState`, for `StateReader`. Set it — `ascDescriptor`'s
+`Caps: adapter.CapState` in both `ntcip-asc` and the tutorial's `acme-asc`
+is the pattern. If your device produces discrete events rather than state
+(a log fetcher, say), the SDK has no interface for it yet, by design: see
+[ADR 0021](../adr/0021-sdk-interfaces-ship-with-their-first-implementer.md)
+and raise it before writing the adapter, since that adapter will also
+define the interface and its runner path.
 
 ## Register the adapter
 

@@ -38,12 +38,12 @@ It does not apply to:
    lists five facets that are modeled and diffed with no adapter producing
    them yet. If your device needs a concept no facet models, stop: that's
    a separate `add-domain-facet` contribution, its own PR.
-3. Pick `StateReader` or `EventReader` (`sdk/adapter/adapter.go`) by
-   semantics, not transport — every adapter is pull-driven regardless
-   (ADR 0004: the runner calls `Read`/`Fetch`, nothing an adapter does
-   calls back into the core). Only `StateReader` is wired into the poll
-   runner today. `Commander` is a dormant seam — implement it only if
-   explicitly asked.
+3. Implement `StateReader` (`sdk/adapter/adapter.go`) and set
+   `Caps: adapter.CapState` — every adapter is pull-driven (ADR 0004: the
+   runner calls `Read`, nothing an adapter does calls back into the core).
+   If the device yields discrete events rather than state, stop: there is
+   no event reader in the SDK, and adding one is a design change
+   (ADR 0021), not part of an adapter PR.
 4. Parse the `connection` block inside your `Factory`: your own top-level
    key, lowercase snake_case fields, sensible defaults over required
    knobs, and a rejected build on anything malformed rather than a dial
