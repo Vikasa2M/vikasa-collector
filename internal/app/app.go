@@ -13,6 +13,7 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/internal/publish"
 	"github.com/Vikasa2M/vikasa-collector/internal/runner"
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/subject"
 	"github.com/Vikasa2M/vikasa-collector/internal/synth"
 	"github.com/Vikasa2M/vikasa-collector/internal/wire"
@@ -43,6 +44,10 @@ type Options struct {
 	// slog.Default(); main always sets it, so its flags decide format and
 	// level.
 	Logger *slog.Logger
+	// Counters receives the collector's own counts (ADR 0020 clause 4).
+	// Nil means Run keeps private ones; the caller that serves /status or
+	// the heartbeat passes its own.
+	Counters *stats.Counters
 }
 
 // Run starts the collector and blocks until ctx is cancelled.
@@ -50,6 +55,10 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	log := opts.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	counters := opts.Counters
+	if counters == nil {
+		counters = new(stats.Counters)
 	}
 	tenant := cfg.Tenant()
 
@@ -101,7 +110,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// Start never waits for the broker (ADR 0020): it connects in the
 	// background and queues until the broker is there, so the collector boots
 	// and polls whether or not NATS is up yet.
-	pub, err := publish.Start(ctx, opts.NATSURL, tmpl, ceTypes, log)
+	pub, err := publish.Start(ctx, opts.NATSURL, tmpl, ceTypes, log, counters)
 	if err != nil {
 		return err
 	}
@@ -111,7 +120,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// arrived is still published, within the drain window below.
 	sink := func(events []model.Event) {
 		for _, ev := range events {
-			encodeAndEnqueue(log, pub, tenant, emitters, ev)
+			encodeAndEnqueue(log, pub, counters, tenant, emitters, ev)
 		}
 	}
 
@@ -132,6 +141,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		synth.NewCCTVDiffer(),
 	)
 	engine.WithRejectHook(func(deviceID string, kind model.Kind, got string) {
+		counters.FacetsRejected.Add(1)
 		// An adapter bug, not a device fault: the facet has the right kind but
 		// not the type its differ diffs. Rejected rather than diffed, so the
 		// poll loop survives and the previous state stands.
@@ -141,7 +151,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 
 	var wg sync.WaitGroup
 	for i, d := range cfg.Devices {
-		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink)
+		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink, counters)
 		wg.Go(func() { r.Run(ctx) })
 	}
 
@@ -214,11 +224,12 @@ func closeAll(log *slog.Logger, readers []adapter.StateReader) {
 	}
 }
 
-func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, tenant cloudevents.Tenant,
+func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, counters *stats.Counters, tenant cloudevents.Tenant,
 	emitters []wire.Emitter, ev model.Event) {
 	for _, em := range emitters {
 		enc, ok, err := em.Encode(ev)
 		if err != nil {
+			counters.EncodeErrors.Add(1)
 			log.Error("emit failed", "event", ev.EventKind(), "device", ev.EventDeviceID(), "err", err)
 			return
 		}
@@ -231,6 +242,7 @@ func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, tenant cloudeven
 			// mean inventing a URN shape upstream does not define, and ce-id
 			// hashes that string, so the invention would be baked into every
 			// id. Drop it as loudly as an unclaimed event.
+			counters.DroppedNoSource.Add(1)
 			log.Warn("event dropped: no ce-source entity kind for device kind",
 				"event", ev.EventKind(), "device_kind", ev.EventDeviceKind(), "device", ev.EventDeviceID())
 			return
@@ -255,6 +267,7 @@ func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, tenant cloudeven
 	// means a real mapping gap — an event kind with no ce-type, or one the
 	// openits emitter declined because it could not encode it faithfully —
 	// rather than the chain simply being unwired.
+	counters.DroppedNoEmitter.Add(1)
 	log.Warn("event dropped: no emitter for domain event",
 		"event", ev.EventKind(), "device", ev.EventDeviceID())
 }

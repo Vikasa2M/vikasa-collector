@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/subject"
 )
 
@@ -341,5 +342,29 @@ func TestScrubberRemovesConfiguredURLsVerbatim(t *testing.T) {
 				t.Errorf("scrubbed %q still contains %q: %q", text, secret, got)
 			}
 		}
+	}
+}
+
+// The publisher counts into the collector's shared Counters when given
+// one, so /status and the heartbeat read the same numbers it does.
+func TestPublisherCountsIntoSharedCounters(t *testing.T) {
+	port := freePort(t)
+	startNATSOn(t, port)
+	var c stats.Counters
+	tune := fast(100)
+	tune.counters = &c
+	p, err := start(t.Context(), fmt.Sprintf("nats://127.0.0.1:%d", port), testTemplate(t), []string{healthType}, quiet(), tune)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { drainBounded(p) })
+	for i := range 2 {
+		if err := p.Enqueue(envN(i, nil), "cab-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "two publishes in the shared counters", func() bool { return c.EventsPublished.Load() == 2 })
+	if p.Stats().Published != 2 {
+		t.Fatalf("Stats().Published = %d, want 2 (same counters)", p.Stats().Published)
 	}
 }

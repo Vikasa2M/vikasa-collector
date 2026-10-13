@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/synth"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
@@ -49,7 +50,7 @@ func (h *hangingAdapter) Read(context.Context) (*model.Snapshot, error) {
 func TestRunReturnsOnShutdownWhileAReadHangs(t *testing.T) {
 	h := newHanging()
 	t.Cleanup(func() { close(h.release) })
-	r := New(h, "asc-1", time.Hour, time.Hour, synth.NewEngine(synth.NewSignalDiffer()), func([]model.Event) {})
+	r := New(h, "asc-1", time.Hour, time.Hour, synth.NewEngine(synth.NewSignalDiffer()), func([]model.Event) {}, nil)
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -85,7 +86,7 @@ func TestHungReadIsAFailedPollAndNeverOverlaps(t *testing.T) {
 		}
 		events = append(events, evs...)
 	}
-	r := New(h, "asc-1", 10*time.Millisecond, 10*time.Millisecond, synth.NewEngine(synth.NewSignalDiffer()), out)
+	r := New(h, "asc-1", 10*time.Millisecond, 10*time.Millisecond, synth.NewEngine(synth.NewSignalDiffer()), out, nil)
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -105,5 +106,26 @@ func TestHungReadIsAFailedPollAndNeverOverlaps(t *testing.T) {
 	defer h.mu.Unlock()
 	if h.maxSeen != 1 || h.calls != 1 {
 		t.Fatalf("adapter saw %d Read calls, up to %d at once; want exactly 1 while it is hung", h.calls, h.maxSeen)
+	}
+}
+
+// An adapter panic is a collector fault (ADR 0019 clause 12), so it is
+// counted where the runner recovers it, not just turned into a failed poll.
+func TestAdapterPanicIsCounted(t *testing.T) {
+	var c stats.Counters
+	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){panicRead, okSnap}}, "asc-1",
+		5*time.Millisecond, 0, synth.NewEngine(synth.NewSignalDiffer()), func([]model.Event) {}, &c)
+	r.SetJitter(func(time.Duration) time.Duration { return 0 })
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { r.Run(ctx); close(done) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for c.AdapterPanics.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got := c.AdapterPanics.Load(); got != 1 {
+		t.Fatalf("AdapterPanics = %d, want 1", got)
 	}
 }
