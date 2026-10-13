@@ -22,7 +22,7 @@ func RegisterTo(r *adapter.Registry) {
 	r.Register(ascDescriptor, func(deviceID string, conn map[string]any) (adapter.Adapter, error) {
 		cfg, err := parseSNMPBlock(conn)
 		if err != nil {
-			return nil, fmt.Errorf("ntcip-asc %s: %w", deviceID, err)
+			return nil, err // Registry.Build adds the key; app adds the device
 		}
 		c, err := snmp.Dial(cfg)
 		if err != nil {
@@ -33,7 +33,7 @@ func RegisterTo(r *adapter.Registry) {
 	r.Register(dmsDescriptor, func(deviceID string, conn map[string]any) (adapter.Adapter, error) {
 		cfg, err := parseSNMPBlock(conn)
 		if err != nil {
-			return nil, fmt.Errorf("ntcip-dms %s: %w", deviceID, err)
+			return nil, err
 		}
 		if cfg.Version == "" {
 			cfg.Version = "v1"
