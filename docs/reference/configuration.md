@@ -13,7 +13,7 @@ YAML document in the file, fails boot rather than being ignored.
 
 ## The command line
 
-`collector.yaml` is not the whole configuration surface. Five flags are
+`collector.yaml` is not the whole configuration surface. Six flags are
 parsed by `cmd/collector/main.go`, and none of them has a YAML equivalent:
 they describe where and how this process runs, not the tenant or device
 inventory.
@@ -24,12 +24,14 @@ inventory.
 | `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed to `publish.Start`, which connects in the background: the collector boots and polls without it, queuing events until it is reachable ([ADR 0020](../adr/0020-broker-absence-is-latency.md)). |
 | `-log-level` | `debug` \| `info` \| `warn` \| `error` | `info` | Minimum level written. Case-insensitive. |
 | `-log-format` | `text` \| `json` | `text` | `text` is slog's `key=value` lines; `json` is one object per line, for a log shipper. |
-| `-version` | bool | `false` | Print the build version and exit. Set at build time via `-ldflags "-X main.version=..."`; without a stamp, a `go install …@vX.Y.Z` build prints its module version and a local build prints `dev`. |
+| `-status-addr` | `host:port` | `127.0.0.1:9471` | The management surface (below). Must be loopback — `127.0.0.1`, `::1` or `localhost` — because it is unauthenticated; anything else is refused at boot. Empty disables it. |
+| `-version` | bool | `false` | Print the build version and exit. Set at build time via `-ldflags "-X main.version=..."`; without a stamp it prints the module version Go recorded — the tag for `go install …@vX.Y.Z`, a VCS pseudo-version for a build in a git checkout — and `dev` only when there is none. |
 
 Logs go to stderr; `-version` goes to stdout. Exit codes separate who has to
 fix the problem: **2** means the command line itself is wrong (a missing
-`-config`, an unknown flag, or an unrecognized `-log-level` or
-`-log-format` value — rejected at boot, never defaulted); **1** means the
+`-config`, an unknown flag, an unrecognized `-log-level` or
+`-log-format` value, or a non-loopback `-status-addr` — rejected at boot,
+never defaulted); **1** means the
 config or the runtime failed; **0** is a clean shutdown or `-version`.
 
 `-nats` defaults to loopback because the collector and the broker are
@@ -44,6 +46,26 @@ An unreachable `-nats` is therefore not a startup failure. It is the one
 sanctioned exception to fail-fast (ADR 0014): the address is still
 validated as a URL at boot, but a broker that is down, or simply slower to
 start than the collector, is waited for rather than treated as bad config.
+
+### The management surface
+
+With `-status-addr` set (the default), the collector serves three read-only
+`GET` endpoints on loopback
+([management-surface spec §1](../specs/2026-08-09-management-surface-design.md#1-local-surface)):
+
+| Endpoint | Answers | Status |
+|---|---|---|
+| `/livez` | Is the process responsive? For restarts only. | `200` |
+| `/readyz` | Has this version proven itself: at least one successful device poll? **Latches** — a later outage never makes it unready — and does not depend on the broker. For gating a rollout. | `200` ready, `503` not yet |
+| `/status` | JSON for a technician: `version`, `config_revision` (a SHA-256 prefix of the config file's bytes), `boot_id`, `uptime_s`, `ready`, `broker` (`connected`, `queued`), the collector's `counters`, and per device its last success, last error and consecutive failures. | `200` |
+
+Requests whose `Host` header is not `localhost` or a loopback IP are
+refused with `421`. The loopback bind keeps other machines out; the `Host`
+check also keeps out DNS rebinding, where a page in a browser on the same
+host points its own domain at 127.0.0.1.
+
+A supervisor's start-up grace must exceed twice the longest `poll_interval`:
+the first poll comes no sooner than one interval plus start jitter.
 
 ## Fields
 

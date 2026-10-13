@@ -41,6 +41,7 @@ type Runner struct {
 	pending chan readResult
 
 	counters *stats.Counters
+	devices  *stats.Devices
 }
 
 type readResult struct {
@@ -48,28 +49,46 @@ type readResult struct {
 	err  error
 }
 
-// New builds a Runner. timeout==0 defaults to interval. A non-positive
-// interval panics, as time.NewTicker does: config.Load rejects one at boot,
-// so reaching here with it is a programming error, not an operator one.
-// c receives the runner's counts (adapter panics); nil keeps them private.
-func New(dev adapter.StateReader, deviceID string, interval, timeout time.Duration,
-	engine *synth.Engine, out func([]model.Event), c *stats.Counters) *Runner {
-	if interval <= 0 {
-		panic(fmt.Sprintf("runner.New: non-positive poll interval %v for device %s", interval, deviceID))
+// Config is what a Runner needs beyond the adapter itself.
+type Config struct {
+	DeviceID string
+	// Interval between polls. Non-positive panics, as time.NewTicker does:
+	// config.Load rejects one at boot, so it is a programming error here.
+	Interval time.Duration
+	// Timeout bounds one poll; zero means Interval.
+	Timeout time.Duration
+	Engine  *synth.Engine
+	// Out receives the events each poll produces. It must not block.
+	Out func([]model.Event)
+	// Counters receives the runner's counts (adapter panics); nil keeps
+	// them private.
+	Counters *stats.Counters
+	// Devices receives every poll outcome, for /status and readiness; nil
+	// keeps them private.
+	Devices *stats.Devices
+}
+
+// New builds a Runner for one device.
+func New(dev adapter.StateReader, c Config) *Runner {
+	if c.Interval <= 0 {
+		panic(fmt.Sprintf("runner.New: non-positive poll interval %v for device %s", c.Interval, c.DeviceID))
 	}
-	if timeout <= 0 {
-		timeout = interval
+	if c.Timeout <= 0 {
+		c.Timeout = c.Interval
 	}
-	if c == nil {
-		c = new(stats.Counters)
+	if c.Counters == nil {
+		c.Counters = new(stats.Counters)
+	}
+	if c.Devices == nil {
+		c.Devices = stats.NewDevices([]string{c.DeviceID})
 	}
 	return &Runner{
-		dev: dev, deviceID: deviceID,
+		dev: dev, deviceID: c.DeviceID,
 		// From the adapter's own Descriptor: an adapter cannot forget to report
 		// its kind, or report one that disagrees with its registration.
 		deviceKind: dev.Descriptor().DeviceKind,
-		interval:   interval, timeout: timeout,
-		engine: engine, out: out, counters: c,
+		interval:   c.Interval, timeout: c.Timeout,
+		engine: c.Engine, out: c.Out, counters: c.Counters, devices: c.Devices,
 		now:    time.Now,
 		jitter: rand.N[time.Duration],
 	}
@@ -114,6 +133,7 @@ func (r *Runner) pollOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		r.devices.PollFailed(r.deviceID, r.now().UTC(), err)
 		r.consecutiveFailures++
 		if r.consecutiveFailures == 1 {
 			r.out([]model.Event{model.DeviceStatusChanged{
@@ -122,6 +142,7 @@ func (r *Runner) pollOnce(ctx context.Context) {
 			}})
 		}
 	default:
+		r.devices.PollOK(r.deviceID, r.now().UTC())
 		if r.consecutiveFailures > 0 {
 			r.out([]model.Event{model.DeviceStatusChanged{
 				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: r.now().UTC()},

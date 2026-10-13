@@ -4,6 +4,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/internal/durable"
+	"github.com/Vikasa2M/vikasa-collector/internal/manage"
 	"github.com/Vikasa2M/vikasa-collector/internal/publish"
 	"github.com/Vikasa2M/vikasa-collector/internal/runner"
 	"github.com/Vikasa2M/vikasa-collector/internal/stats"
@@ -50,6 +53,9 @@ type Options struct {
 	// slog.Default(); main always sets it, so its flags decide format and
 	// level.
 	Logger *slog.Logger
+	// StatusAddr is the loopback address for the management surface
+	// (/livez, /readyz, /status); empty disables it.
+	StatusAddr string
 	// Counters receives the collector's own counts (ADR 0020 clause 4).
 	// Nil means Run keeps private ones; the caller that serves /status or
 	// the heartbeat passes its own.
@@ -66,6 +72,15 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	if counters == nil {
 		counters = new(stats.Counters)
 	}
+	if err := manage.ValidateAddr(opts.StatusAddr); err != nil {
+		return err
+	}
+	devices := stats.NewDevices(cfg.DeviceIDs())
+	bootID, err := newBootID()
+	if err != nil {
+		return err
+	}
+	started := time.Now().UTC()
 	tenant := cfg.Tenant()
 
 	// Emitter chain: first claim wins. openits goes first so catalog events
@@ -121,6 +136,23 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		return err
 	}
 
+	if opts.StatusAddr != "" {
+		surface := &surface{
+			version: opts.Version, revision: cfg.Revision, bootID: bootID, started: started,
+			counters: counters, devices: devices, pub: pub,
+		}
+		srv, err := manage.Start(ctx, opts.StatusAddr, surface, log)
+		if err != nil {
+			return err
+		}
+		// Last to stop, so /livez answers through the whole drain.
+		defer func() {
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+			defer cancel()
+			srv.Shutdown(sctx)
+		}()
+	}
+
 	// sink only queues, so a runner never waits on the broker. Publishing
 	// deliberately does not ride ctx: a reading taken just as shutdown
 	// arrived is still published, within the drain window below.
@@ -165,7 +197,10 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 
 	var wg sync.WaitGroup
 	for i, d := range cfg.Devices {
-		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink, counters)
+		r := runner.New(readers[i], runner.Config{
+			DeviceID: d.ID, Interval: d.PollInterval, Engine: engine, Out: sink,
+			Counters: counters, Devices: devices,
+		})
 		wg.Go(func() { r.Run(ctx) })
 	}
 
@@ -287,4 +322,39 @@ func encodeAndEnqueue(log *slog.Logger, pub *publish.Publisher, counters *stats.
 	counters.DroppedNoEmitter.Add(1)
 	log.Warn("event dropped: no emitter for domain event",
 		"event", ev.EventKind(), "device", ev.EventDeviceID())
+}
+
+// surface is the management surface's view of a running collector.
+type surface struct {
+	version, revision, bootID string
+	started                   time.Time
+	counters                  *stats.Counters
+	devices                   *stats.Devices
+	pub                       *publish.Publisher
+}
+
+// Ready is the spec's rule: booted (we are serving), config accepted (Run
+// got this far), and at least one successful device poll — latched, and
+// independent of the broker.
+func (s *surface) Ready() bool { return s.devices.EverPolled() }
+
+func (s *surface) Status() manage.Status {
+	return manage.Status{
+		Version: s.version, ConfigRevision: s.revision, BootID: s.bootID,
+		StartedAt: s.started, UptimeSeconds: int64(time.Since(s.started).Seconds()),
+		Ready:    s.Ready(),
+		Broker:   manage.Broker{Connected: s.pub.Connected(), Queued: s.pub.Stats().Queued},
+		Counters: s.counters.Snapshot(),
+		Devices:  s.devices.Snapshot(),
+	}
+}
+
+// newBootID identifies this process lifetime (ADR 0019): a consumer seeing
+// it change knows the cumulative counters restarted from zero.
+func newBootID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("boot id: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
 }

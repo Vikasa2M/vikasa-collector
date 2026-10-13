@@ -7,10 +7,13 @@ described in `docs/specs/`, not part of this documentation effort.
 
 ## What's missing, plainly
 
-Nothing in this repository updates a running collector, exposes a
-readiness or liveness endpoint, or reports version and config drift to a
-fleet control plane. Two specs describe that work in detail without it
-having shipped yet:
+Nothing in this repository updates a running collector or reports version
+drift to a fleet control plane. What a host supervisor needs to gate a
+rollout does exist: the loopback management surface — `/livez`, a latching
+`/readyz`, and `/status` with the running version and config revision —
+documented in
+[`reference/configuration.md`](../reference/configuration.md) (`-status-addr`).
+Two specs describe the rest in detail without it having shipped yet:
 
 - [`docs/specs/2026-08-09-fleet-deployment.md`](../specs/2026-08-09-fleet-deployment.md)
   — host mechanism versus fleet control plane, what's invariant across

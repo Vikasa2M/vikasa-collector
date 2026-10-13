@@ -117,14 +117,17 @@ kit (successor A) — a tool that captures real SNMP responses into `testdata/`
 with a sanctioned regeneration path, then re-recording `ntcip-asc` against a
 real controller. Evidence: ledger `:194-210`, `:3428-3440`.
 
-**ADR 0012**ADR 0012's readiness signal and expected-version drift reporting do not
-exist.** Nothing in the tree implements a readiness endpoint or signal, and
-nothing reports an expected-versus-running version. ADR 0012's Decision
-section lists three numbered mechanisms in the present tense; only the first
-(the collector never self-updates) is implemented. *Closing it:* fleet-plan
-Phase 1 — the readiness signal, broker-absent tolerance, and expected-version
-drift reporting, all prerequisites for health-gated rollback. Evidence: ledger
-`:1376-1392`.
+**ADR 0012's expected-version drift reporting does not exist.** ADR 0012's
+Decision section lists three numbered mechanisms in the present tense. Two
+are implemented: the collector never self-updates, and it exposes a
+readiness signal — `/readyz` on the loopback management surface
+(`internal/manage`), latching on the first successful device poll and
+independent of the broker, which is the condition health-gated rollback
+needs. The third, comparing an expected version against the running one and
+reporting drift, is not: `/status` reports the running `version` and
+`config_revision`, but nothing knows what version was *expected*. *Closing
+it:* an expected-version input from the deployment, and a drift report on
+the bus. Evidence: ledger `:1376-1392`.
 
 ### Documents that are stale and were not corrected
 

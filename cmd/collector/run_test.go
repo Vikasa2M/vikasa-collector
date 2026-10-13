@@ -32,6 +32,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"unknown flag", []string{"-config", cfg, "-bogus"}, 2},
 		{"bad -log-level", []string{"-config", cfg, "-log-level", "loud"}, 2},
 		{"bad -log-format", []string{"-config", cfg, "-log-format", "xml"}, 2},
+		{"non-loopback -status-addr", []string{"-config", cfg, "-status-addr", "0.0.0.0:9471"}, 2},
 		{"unreadable config", []string{"-config", filepath.Join(t.TempDir(), "nope.yaml")}, 1},
 	}
 	for _, tc := range cases {
@@ -95,5 +96,15 @@ func TestResolveVersion(t *testing.T) {
 				t.Fatalf("resolveVersion() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// The surface is unauthenticated, so a non-loopback address is refused at
+// boot as a usage error — for that reason, not as an unknown flag.
+func TestRunRejectsNonLoopbackStatusAddr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(t.Context(), []string{"-config", filepath.Join("..", "..", "collector.yaml"), "-status-addr", "0.0.0.0:9471"}, &stdout, &stderr)
+	if exitCode(err) != 2 || err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("run = %v (exit %d), want a usage error about loopback", err, exitCode(err))
 	}
 }

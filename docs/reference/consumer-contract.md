@@ -39,8 +39,8 @@ why they are not one stream.
 This is the part most likely to be assumed rather than read. The collector
 makes a **bounded** effort to deliver, and events can be lost in four
 distinct ways. The first three are logged and counted in the collector's own
-counters (`internal/stats`; served by `/status` and the ADR 0019 heartbeat
-once those are built). The fourth cannot be: a collector without its stored
+counters (`internal/stats`; served on the local `/status` endpoint, and
+carried by the ADR 0019 heartbeat once it is built). The fourth cannot be: a collector without its stored
 state does not know what it missed.
 
 1. **The publisher cannot hold it.** A broker that is down or restarting
