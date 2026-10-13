@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	neturl "net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -132,12 +133,13 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 		nats.ReconnectHandler(func(*nats.Conn) { log.Info("broker reconnected", "url", safe) }),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
-				log.Warn("broker disconnected", "url", safe, "err", err)
+				log.Warn("broker disconnected", "url", safe, "err", scrubCredentials(err.Error()))
 			}
 		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("publish: nats %s: %w", safe, err)
+		// Not %w: the parser's error embeds the raw URL, credentials and all.
+		return nil, fmt.Errorf("publish: nats %s: %s", safe, scrubCredentials(err.Error()))
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -279,7 +281,7 @@ func (p *Publisher) drain(ctx context.Context) {
 			if !p.nc.IsConnected() {
 				err = fmt.Errorf("not connected to the broker (%s)", p.nc.Status())
 			}
-			p.log.Warn("publishing unavailable; queueing until the broker is back", "err", err)
+			p.log.Warn("publishing unavailable; queueing until the broker is back", "err", scrubCredentials(err.Error()))
 		}
 		select {
 		case <-time.After(backoff):
@@ -401,6 +403,14 @@ func (p *Publisher) provision(ctx context.Context) error {
 func permanent(err error) bool {
 	return errors.Is(err, nats.ErrMaxPayload) || errors.Is(err, nats.ErrBadSubject)
 }
+
+// userinfo matches the credentials part of any "scheme://user:pass@" or
+// "scheme://token@" embedded in free text, such as a library error that
+// quotes the URL it failed on.
+var userinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s"]+@`)
+
+// scrubCredentials removes embedded URL userinfo from s.
+func scrubCredentials(s string) string { return userinfo.ReplaceAllString(s, "$1") }
 
 // redactURL makes a NATS server list safe to log. It drops each URL's
 // userinfo outright — URL.Redacted masks only a password, and NATS also

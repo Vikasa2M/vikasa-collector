@@ -298,3 +298,23 @@ func (l *lockedBuffer) String() string {
 	defer l.mu.Unlock()
 	return l.b.String()
 }
+
+// The URL parser's own error echoes the raw string, credentials included;
+// Start's error must not carry them through (main prints it to stderr).
+func TestStartErrorNeverContainsCredentials(t *testing.T) {
+	for _, u := range []string{
+		"nats://alice:hunter2@bad host:4222",
+		"nats://alice:hunter2@127.0.0.1:notaport",
+		"nats://s3cr3t-token@[::1",
+	} {
+		_, err := start(t.Context(), u, testTemplate(t), []string{healthType}, quiet(), fast(10))
+		if err == nil {
+			t.Fatalf("start(%q) succeeded; want a malformed-URL error", u)
+		}
+		for _, secret := range []string{"hunter2", "alice", "s3cr3t-token"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("start(%q) error leaks %q: %v", u, secret, err)
+			}
+		}
+	}
+}
