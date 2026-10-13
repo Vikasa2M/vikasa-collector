@@ -60,6 +60,9 @@ type Config struct {
 	ModelVersion string   `yaml:"model_version"`
 	Subject      Subject  `yaml:"subject"`
 	Devices      []Device `yaml:"devices"`
+	// HeartbeatInterval is how often the collector reports its own health
+	// (ADR 0019 clause 3). Zero means DefaultHeartbeatInterval.
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 
 	// Revision identifies the config file's exact bytes (a SHA-256 prefix),
 	// so fleet tooling can tell which config a running collector loaded.
@@ -143,9 +146,23 @@ func decode(raw []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// DefaultHeartbeatInterval is ADR 0019's default: ~6.5 MB per cabinet per
+// month, and detection within ~15 minutes while the uplink is up.
+const DefaultHeartbeatInterval = 300 * time.Second
+
+// minHeartbeatInterval is the floor below which a heartbeat stops being a
+// fleet-health cadence and becomes a debugging one, at a metered-link cost.
+const minHeartbeatInterval = 10 * time.Second
+
 func (c *Config) validate(reg *adapter.Registry) error {
 	if err := c.Tenant().Validate(); err != nil {
 		return err
+	}
+	switch {
+	case c.HeartbeatInterval == 0:
+		c.HeartbeatInterval = DefaultHeartbeatInterval
+	case c.HeartbeatInterval < minHeartbeatInterval:
+		return fmt.Errorf("heartbeat_interval %v is below the %v minimum", c.HeartbeatInterval, minHeartbeatInterval)
 	}
 	if !slices.Contains(wire.SupportedModelVersions, c.ModelVersion) {
 		return fmt.Errorf("model_version %q is not supported by this build (want one of %s)",

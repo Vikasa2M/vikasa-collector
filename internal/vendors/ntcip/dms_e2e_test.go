@@ -84,10 +84,10 @@ devices:
 	go func() { runErr <- app.Run(ctx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
 
 	want := map[string]bool{
-		"openits-collector.health.collector-started.v1": false,
-		"openits.dms.sign-status-report.v1":             false,
-		"openits.dms.message-changed.v1":                false,
-		"openits.dms.mode-changed.v1":                   false,
+		"openits-collector.instance.started.v1": false,
+		"openits.dms.sign-status-report.v1":     false,
+		"openits.dms.message-changed.v1":        false,
+		"openits.dms.mode-changed.v1":           false,
 	}
 	deadline := time.After(10 * time.Second)
 	for {

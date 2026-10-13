@@ -68,12 +68,6 @@ type Identity struct {
 	Site       string
 }
 
-// deviceLessID is what {device_id} renders for events with no device. The
-// collector is the subject of its own boot event, so naming it "collector"
-// keeps the token count constant rather than producing a short subject that
-// falls outside the binding.
-const deviceLessID = "collector"
-
 // token is one dot-separated element: either a literal or a single placeholder.
 type token struct {
 	literal     string // rendered value for literals and resolved constants
@@ -84,6 +78,12 @@ type token struct {
 type Template struct {
 	tokens []token
 	raw    string
+	// site is what {device_id} renders for an event with no device — the
+	// collector's own events. One collector per cabinet makes site the
+	// collector's identity, and ce-source already uses it as the id segment
+	// for these events (ADR 0019 clause 2). It also keeps the token count
+	// constant, so these subjects stay inside the binding.
+	site string
 }
 
 // New validates cfg and returns a Template. Every failure here is a boot
@@ -140,7 +140,7 @@ func New(cfg Config, id Identity) (*Template, error) {
 		return nil, err
 	}
 
-	return &Template{tokens: toks, raw: raw}, nil
+	return &Template{tokens: toks, raw: raw, site: id.Site}, nil
 }
 
 // parseTokens splits the template on "." and resolves each token. Each token is
@@ -192,7 +192,7 @@ func parseTokens(raw string, vars map[string]string) ([]token, error) {
 }
 
 // Render produces the subject for one ce-type and device. An empty deviceID
-// means a collector-level event and renders as deviceLessID.
+// means a collector-level event and renders as the site.
 func (t *Template) Render(ceType, deviceID string) (string, error) {
 	namespace, service, event, version, err := decompose(ceType)
 	if err != nil {
@@ -214,7 +214,7 @@ func (t *Template) Render(ceType, deviceID string) (string, error) {
 		case "device_id":
 			id := deviceID
 			if id == "" {
-				id = deviceLessID
+				id = t.site
 			}
 			// Checked HERE, before substitution, not on the joined subject.
 			// A device id containing a dot would merge into the rendered

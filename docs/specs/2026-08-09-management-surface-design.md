@@ -89,8 +89,9 @@ Collector-owned schema (ADR 0007), so none of this waits on an upstream
 release. All of it rides `openits-collector.*`, which ADR 0011 already put on
 its own subject root and its own stream.
 
-**Exists:** `CollectorStarted` (carries version), `DeviceStatusChanged`
-(reachability transitions).
+**Exists:** the ADR 0019 instance events — `started`, `stopping`, and a
+periodic `heartbeat` carrying identity, resource use and the cumulative
+counters — plus `DeviceStatusChanged` (reachability transitions).
 
 **To add:**
 

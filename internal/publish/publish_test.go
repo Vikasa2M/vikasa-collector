@@ -36,14 +36,14 @@ func TestPublishRoundTripAndDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"}, quiet(), fast(100))
+	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.instance.started.v1"}, quiet(), fast(100))
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer drainBounded(p)
 
 	at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
-	ceType := "openits-collector.health.collector-started.v1"
+	ceType := "openits-collector.instance.started.v1"
 	env := cloudevents.New(cloudevents.Event{
 		CEType:      ceType,
 		Source:      "urn:openits:collector:us-ga:metro:d01:cab-1",
@@ -87,7 +87,7 @@ func TestPublishRoundTripAndDedup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
-	wantSubject := "openits-collector.us-ga.metro.d01.health.cab-1.collector-started"
+	wantSubject := "openits-collector.us-ga.metro.d01.instance.cab-1.started"
 	if msg.Subject() != wantSubject {
 		t.Fatalf("subject = %q, want %q", msg.Subject(), wantSubject)
 	}
@@ -121,14 +121,14 @@ func TestPublishUsesCustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.health.collector-started.v1"}, quiet(), fast(100))
+	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{"openits-collector.instance.started.v1"}, quiet(), fast(100))
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer drainBounded(p)
 
 	at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
-	ceType := "openits-collector.health.collector-started.v1"
+	ceType := "openits-collector.instance.started.v1"
 	env := cloudevents.New(cloudevents.Event{
 		CEType:      ceType,
 		Source:      "urn:openits:collector:us-ga:metro:d01:cab-1",
@@ -159,7 +159,7 @@ func TestPublishUsesCustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
-	want := "traffic.southeast.metro.health.collector-started.v1"
+	want := "traffic.southeast.metro.instance.started.v1"
 	if msg.Subject() != want {
 		t.Fatalf("subject = %q, want %q", msg.Subject(), want)
 	}
@@ -187,7 +187,7 @@ func TestStartProvisionsAStreamPerNamespace(t *testing.T) {
 	}
 	p, err := start(t.Context(), ns.ClientURL(), tmpl, []string{
 		"openits.signal-control.fault-raised.v1",
-		"openits-collector.health.collector-started.v1",
+		"openits-collector.instance.started.v1",
 	}, quiet(), fast(100))
 	if err != nil {
 		t.Fatalf("start: %v", err)

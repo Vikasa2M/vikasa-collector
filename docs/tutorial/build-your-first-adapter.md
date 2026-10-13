@@ -609,7 +609,7 @@ you want the full derivation), but the subjects and ce-types are not:
 
 ```
 === RUN   TestWatchEventReachJetStream
-    e2e_test.go:91: subject=openits-collector.us-ga.metro.d01.health.collector.collector-started ce-type=openits-collector.health.collector-started.v1 ce-source=urn:openits:collector:us-ga:metro:d01:cab-1 ce-id=01M09A1W6PPFSW7TVJKDHRMYYD
+    e2e_test.go:91: subject=openits-collector.us-ga.metro.d01.instance.cab-1.started ce-type=openits-collector.instance.started.v1 ce-source=urn:openits:collector:us-ga:metro:d01:cab-1 ce-id=01M09A1W6PPFSW7TVJKDHRMYYD
     e2e_test.go:91: subject=openits.us-ga.metro.d01.signal-control.asc-1.operational-status-report ce-type=openits.signal-control.operational-status-report.v1 ce-source=urn:openits:controller:us-ga:metro:d01:asc-1 ce-id=01M09A1W74NWZEGW4RMVKGNBW5
 --- PASS: TestWatchEventReachJetStream (0.02s)
 PASS
@@ -617,7 +617,7 @@ ok  	github.com/Vikasa2M/vikasa-collector/internal/vendors/acme	0.023s
 ```
 
 Two events, in order: the collector's own boot event first
-(`collector-started`, on the `openits-collector.*` namespace — collector
+(`instance.started`, on the `openits-collector.*` namespace — collector
 health always publishes there, never mixed with device telemetry), then the
 event your adapter caused: `operational-status-report`, on
 `openits.us-ga.metro.d01.signal-control.asc-1.operational-status-report`.
