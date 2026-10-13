@@ -81,7 +81,7 @@ add one:
 ## Differ (`internal/synth/<domain>.go`)
 
 A differ implements `synth.Differ`
-(`Kind() model.Kind` and `Diff(prev, curr model.Facet, base model.Base) []model.Event`,
+(`Facet() model.Facet` — the zero value of the one facet type it diffs, from which the engine takes its kind — and `Diff(prev, curr model.Facet, base model.Base) []model.Event`,
 `internal/synth/synth.go`) and gets registered as one of the
 `synth.NewEngine(...)` arguments in `internal/app/app.go` — see that
 constructor call for the full list of differs the collector currently

@@ -127,6 +127,14 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		synth.NewZoneIntervalDiffer(),
 		synth.NewCCTVDiffer(),
 	)
+	engine.WithRejectHook(func(deviceID string, kind model.Kind, got string) {
+		// An adapter bug, not a device fault: the facet has the right kind but
+		// not the type its differ diffs. Rejected rather than diffed, so the
+		// poll loop survives and the previous state stands.
+		log.Warn("facet rejected: wrong type for its kind",
+			"device", deviceID, "kind", string(kind), "type", got)
+	})
+
 	var wg sync.WaitGroup
 	for i, d := range cfg.Devices {
 		r := runner.New(readers[i], d.ID, d.PollInterval, 0, engine, sink)
