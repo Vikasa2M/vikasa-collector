@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	neturl "net/url"
-	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +69,7 @@ type Publisher struct {
 	bindings []string
 	log      *slog.Logger
 	tune     tuning
+	scrub    *strings.Replacer // redacts the configured URLs out of error text
 
 	mu     sync.Mutex
 	queue  []*nats.Msg
@@ -121,6 +122,7 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 		log = slog.Default()
 	}
 	safe := redactURL(url) // the only form of url that may be logged or returned
+	scrub := scrubber(url)
 	nc, err := nats.Connect(url,
 		nats.Name("vikasa-collector"),
 		nats.RetryOnFailedConnect(true),
@@ -133,13 +135,18 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 		nats.ReconnectHandler(func(*nats.Conn) { log.Info("broker reconnected", "url", safe) }),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
-				log.Warn("broker disconnected", "url", safe, "err", scrubCredentials(err.Error()))
+				log.Warn("broker disconnected", "url", safe, "err", scrub.Replace(err.Error()))
 			}
 		}),
 	)
 	if err != nil {
-		// Not %w: the parser's error embeds the raw URL, credentials and all.
-		return nil, fmt.Errorf("publish: nats %s: %s", safe, scrubCredentials(err.Error()))
+		// Never %w, and never the parser's own message: it quotes the input,
+		// and any fragment of that can be part of a password.
+		var ue *neturl.Error
+		if errors.As(err, &ue) {
+			return nil, fmt.Errorf("publish: -nats %s is not a valid URL (parser detail withheld: it would quote any credentials)", safe)
+		}
+		return nil, fmt.Errorf("publish: nats %s: %s", safe, scrub.Replace(err.Error()))
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -148,7 +155,7 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 	}
 	dctx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	p := &Publisher{
-		nc: nc, js: js, tmpl: tmpl, bindings: bindings, log: log, tune: tune,
+		nc: nc, js: js, tmpl: tmpl, bindings: bindings, log: log, tune: tune, scrub: scrub,
 		wake: make(chan struct{}, 1), stop: stop, done: make(chan struct{}),
 	}
 	go p.drain(dctx)
@@ -281,7 +288,7 @@ func (p *Publisher) drain(ctx context.Context) {
 			if !p.nc.IsConnected() {
 				err = fmt.Errorf("not connected to the broker (%s)", p.nc.Status())
 			}
-			p.log.Warn("publishing unavailable; queueing until the broker is back", "err", scrubCredentials(err.Error()))
+			p.log.Warn("publishing unavailable; queueing until the broker is back", "err", p.scrub.Replace(err.Error()))
 		}
 		select {
 		case <-time.After(backoff):
@@ -404,13 +411,28 @@ func permanent(err error) bool {
 	return errors.Is(err, nats.ErrMaxPayload) || errors.Is(err, nats.ErrBadSubject)
 }
 
-// userinfo matches the credentials part of any "scheme://user:pass@" or
-// "scheme://token@" embedded in free text, such as a library error that
-// quotes the URL it failed on.
-var userinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s"]+@`)
-
-// scrubCredentials removes embedded URL userinfo from s.
-func scrubCredentials(s string) string { return userinfo.ReplaceAllString(s, "$1") }
+// scrubber replaces every literal copy of the configured server URLs —
+// raw, and as strconv.Quote would escape them — with their redacted form.
+// It deliberately does no parsing: a scrubber that parses can disagree with
+// the parser that produced the text (userinfo ends at the LAST '@', the
+// authority at the first '/', quotes are escaped), and every disagreement
+// is a leak.
+func scrubber(servers string) *strings.Replacer {
+	var pairs []string
+	add := func(raw string) {
+		if raw == "" {
+			return
+		}
+		safe := redactURL(raw)
+		quoted := strconv.Quote(raw)
+		pairs = append(pairs, raw, safe, quoted[1:len(quoted)-1], safe)
+	}
+	add(servers)
+	for part := range strings.SplitSeq(servers, ",") {
+		add(strings.TrimSpace(part))
+	}
+	return strings.NewReplacer(pairs...)
+}
 
 // redactURL makes a NATS server list safe to log. It drops each URL's
 // userinfo outright — URL.Redacted masks only a password, and NATS also

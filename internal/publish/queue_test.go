@@ -302,18 +302,43 @@ func (l *lockedBuffer) String() string {
 // The URL parser's own error echoes the raw string, credentials included;
 // Start's error must not carry them through (main prints it to stderr).
 func TestStartErrorNeverContainsCredentials(t *testing.T) {
+	// Each password is chosen to defeat a pattern-based scrubber: the URL
+	// parser splits userinfo at the LAST '@', ends the authority at the
+	// first '/', and escapes '"' when it quotes the input.
 	for _, u := range []string{
 		"nats://alice:hunter2@bad host:4222",
 		"nats://alice:hunter2@127.0.0.1:notaport",
 		"nats://s3cr3t-token@[::1",
+		"nats://alice:hun@ter2@127.0.0.1:notaport",
+		"nats://alice:hun/ter2@127.0.0.1:4222",
+		`nats://alice:hun"ter2@127.0.0.1:notaport`,
 	} {
 		_, err := start(t.Context(), u, testTemplate(t), []string{healthType}, quiet(), fast(10))
 		if err == nil {
 			t.Fatalf("start(%q) succeeded; want a malformed-URL error", u)
 		}
-		for _, secret := range []string{"hunter2", "alice", "s3cr3t-token"} {
+		for _, secret := range []string{"hunter2", "alice", "s3cr3t-token", "ter2", "hun"} {
 			if strings.Contains(err.Error(), secret) {
 				t.Errorf("start(%q) error leaks %q: %v", u, secret, err)
+			}
+		}
+	}
+}
+
+// The runtime scrubber replaces literal copies of the configured URLs, raw
+// or quote-escaped, whatever the password contains.
+func TestScrubberRemovesConfiguredURLsVerbatim(t *testing.T) {
+	servers := `nats://alice:hun@ter2@10.0.0.1:4222, nats://bob:pa"ss/x@10.0.0.2:4222`
+	s := scrubber(servers)
+	for _, text := range []string{
+		"dial nats://alice:hun@ter2@10.0.0.1:4222: refused",
+		`parse "nats://bob:pa\"ss/x@10.0.0.2:4222": bad`,
+		"all servers: " + servers,
+	} {
+		got := s.Replace(text)
+		for _, secret := range []string{"alice", "hun@", "ter2", "bob:", `pa"ss`, `pa\"ss`, "ss/x"} {
+			if strings.Contains(got, secret) {
+				t.Errorf("scrubbed %q still contains %q: %q", text, secret, got)
 			}
 		}
 	}
