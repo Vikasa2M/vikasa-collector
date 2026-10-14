@@ -103,6 +103,23 @@ whatever the collector stores locally: no local state survives a reflash, a
 swapped storage device, or a first boot, and after any of those the collector
 will re-raise — correctly, because it genuinely does not know.
 
+## Device reachability
+
+A device going unreachable, or coming back, is published on the **catalog**
+root as `openits.<service>.comm-health-event.v1` with `kind`
+`openits-common-comm-health-events:comm-lost` or `…:comm-restored`, wherever
+the pinned openits-models release gives that service the channel —
+signal-control today. For device kinds whose service does not have it yet
+(DMS today), the same transition goes out as the collector-owned
+`openits-collector.health.device-status-changed.v1` instead, so it is never
+lost; that fallback shrinks as upstream adds the channel
+([ADR 0019](../adr/0019-collector-self-health.md), as amended).
+
+Both are transitions only — the first failed read after a success, the first
+success after a failure. An adapter crash or contract violation is **not** a
+device fault and produces neither: the device was never contacted. It is
+counted as `adapter_panics` on the collector's heartbeat instead.
+
 ## Restart behaviour
 
 **The collector remembers previous state across a restart**

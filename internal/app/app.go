@@ -201,7 +201,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	for i, d := range cfg.Devices {
 		r := runner.New(readers[i], runner.Config{
 			DeviceID: d.ID, Interval: d.PollInterval, Engine: engine, Out: sink,
-			Counters: counters, Devices: devices,
+			Counters: counters, Devices: devices, Log: log,
 		})
 		wg.Go(func() { r.Run(ctx) })
 	}

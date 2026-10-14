@@ -551,6 +551,7 @@ func TestCETypes_IsCompleteSortedAndDeduped(t *testing.T) {
 		"openits.perception.zone-incident-detected.v1",
 		"openits.perception.zone-incident-updated.v1",
 		"openits.perception.zone-interval-report.v1",
+		"openits.signal-control.comm-health-event.v1",
 		"openits.signal-control.detector-report.v1",
 		"openits.signal-control.fault-cleared.v1",
 		"openits.signal-control.fault-raised.v1",
@@ -1074,5 +1075,51 @@ func TestEncode_CCTVTourUnknownStateIsNotClaimed(t *testing.T) {
 	}
 	if ok {
 		t.Error("emitter claimed an unknown tour state; the wire would render it as stopped")
+	}
+}
+
+// ADR 0019 Scope: a device's reachability is a catalog fact, published as
+// <service>.comm-health-event with kind comm-lost / comm-restored. Asserted
+// against the decoded wire payload, field by field.
+func TestEncode_DeviceStatusChangedIsCommHealth(t *testing.T) {
+	at := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		reachable bool
+		kind      string
+	}{
+		{false, "openits-common-comm-health-events:comm-lost"},
+		{true, "openits-common-comm-health-events:comm-restored"},
+	} {
+		enc, ok, err := New("cabinet-poller-1").Encode(model.DeviceStatusChanged{
+			Base:      model.Base{DeviceID: "asc-1", DeviceKind: "asc", OccurredAt: at},
+			Reachable: tc.reachable, Reason: "read timeout", ConsecutiveFailures: 1,
+		})
+		if err != nil || !ok {
+			t.Fatalf("reachable=%v: ok=%v err=%v", tc.reachable, ok, err)
+		}
+		if enc.CEType != "openits.signal-control.comm-health-event.v1" {
+			t.Fatalf("CEType = %q", enc.CEType)
+		}
+		var got commonv1.CommHealthEvent
+		if err := proto.Unmarshal(enc.Data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.GetKind() != tc.kind || got.GetSourceDeviceId() != "asc-1" || got.GetObservedBy() != "cabinet-poller-1" ||
+			!got.GetOccurredAt().AsTime().Equal(at) || got.GetSequence() == 0 {
+			t.Fatalf("reachable=%v payload = %+v, want kind %s for asc-1 observed by cabinet-poller-1", tc.reachable, &got, tc.kind)
+		}
+	}
+}
+
+// A device kind whose service has no comm-health channel in the pinned
+// catalog (DMS today) is declined here, so the collector-owned
+// health.device-status-changed fallback claims it instead of the event being
+// dropped (ADR 0019 as amended for kinds the catalog has not fanned out to).
+func TestEncode_DeviceStatusChangedDeclinedWithoutACatalogChannel(t *testing.T) {
+	_, ok, err := New("cabinet-poller-1").Encode(model.DeviceStatusChanged{
+		Base: model.Base{DeviceID: "dms-1", DeviceKind: "dms", OccurredAt: time.Now()}, Reachable: false,
+	})
+	if err != nil || ok {
+		t.Fatalf("dms device status: ok=%v err=%v, want declined", ok, err)
 	}
 }

@@ -108,9 +108,12 @@ devices:
 	defer cancel()
 	go func() { _ = Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
 
+	// A signal controller's reachability is a catalog fact (ADR 0019 Scope):
+	// it goes out as signal-control's comm-health-event, not on the
+	// collector's own root, which carries only the collector's health.
 	want := map[string]bool{
-		"openits-collector.instance.started.v1":             false,
-		"openits-collector.health.device-status-changed.v1": false,
+		"openits-collector.instance.started.v1":       false,
+		"openits.signal-control.comm-health-event.v1": false,
 	}
 	deadline := time.After(8 * time.Second)
 	for {
@@ -129,6 +132,9 @@ devices:
 			// tenant path.
 			if !strings.Contains(parts[0], ".us-ga.metro.d01.") {
 				t.Fatalf("event on unexpected subject %q", parts[0])
+			}
+			if parts[1] == "openits-collector.health.device-status-changed.v1" {
+				t.Fatalf("a signal controller's reachability went out on the collector root (%s); it belongs on the catalog root", parts[0])
 			}
 			if _, tracked := want[parts[1]]; tracked {
 				want[parts[1]] = true

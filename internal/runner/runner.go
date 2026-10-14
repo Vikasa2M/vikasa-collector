@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -42,7 +43,15 @@ type Runner struct {
 
 	counters *stats.Counters
 	devices  *stats.Devices
+	log      *slog.Logger
 }
+
+// adapterFault is a failed poll caused by the adapter's code, not the
+// device: a panic, or a nil snapshot with no error. The device was never
+// contacted (ADR 0019 clause 12).
+type adapterFault struct{ reason string }
+
+func (f adapterFault) Error() string { return f.reason }
 
 type readResult struct {
 	snap *model.Snapshot
@@ -66,6 +75,8 @@ type Config struct {
 	// Devices receives every poll outcome, for /status and readiness; nil
 	// keeps them private.
 	Devices *stats.Devices
+	// Log receives adapter faults; nil means slog.Default().
+	Log *slog.Logger
 }
 
 // New builds a Runner for one device.
@@ -82,13 +93,16 @@ func New(dev adapter.StateReader, c Config) *Runner {
 	if c.Devices == nil {
 		c.Devices = stats.NewDevices([]string{c.DeviceID})
 	}
+	if c.Log == nil {
+		c.Log = slog.Default()
+	}
 	return &Runner{
 		dev: dev, deviceID: c.DeviceID,
 		// From the adapter's own Descriptor: an adapter cannot forget to report
 		// its kind, or report one that disagrees with its registration.
 		deviceKind: dev.Descriptor().DeviceKind,
 		interval:   c.Interval, timeout: c.Timeout,
-		engine: c.Engine, out: c.Out, counters: c.Counters, devices: c.Devices,
+		engine: c.Engine, out: c.Out, counters: c.Counters, devices: c.Devices, log: c.Log,
 		now:    time.Now,
 		jitter: rand.N[time.Duration],
 	}
@@ -124,7 +138,17 @@ func (r *Runner) pollOnce(ctx context.Context) {
 	defer cancel()
 
 	snap, err := r.read(pctx)
+	var fault adapterFault
 	switch {
+	case errors.As(err, &fault):
+		// A collector fault, not a device fault: counted and logged, and the
+		// device's reachability is left exactly as it was. Reporting it
+		// unreachable would publish a false catalog fact — a bad adapter
+		// release would look like a wave of dead devices.
+		r.counters.AdapterPanics.Add(1)
+		r.log.Warn("adapter fault; the device was not contacted, so its reachability is unchanged",
+			"device", r.deviceID, "adapter", r.dev.Descriptor().Key(), "fault", fault.reason)
+		return
 	case err != nil:
 		// A poll cut short by our own shutdown is not the device's fault.
 		// Reporting it as unreachable would fabricate a device-down event on
@@ -194,13 +218,12 @@ func (r *Runner) read(pctx context.Context) (*model.Snapshot, error) {
 func (r *Runner) readGuarded(ctx context.Context) (snap *model.Snapshot, err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			r.counters.AdapterPanics.Add(1)
-			snap, err = nil, fmt.Errorf("adapter panic: %v", p)
+			snap, err = nil, adapterFault{fmt.Sprintf("adapter panic: %v", p)}
 		}
 	}()
 	snap, err = r.dev.Read(ctx)
 	if snap == nil && err == nil {
-		err = fmt.Errorf("adapter returned a nil snapshot and no error")
+		err = adapterFault{"adapter returned a nil snapshot and no error"}
 	}
 	return snap, err
 }
