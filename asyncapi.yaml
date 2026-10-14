@@ -126,6 +126,25 @@ channels:
       openits-collector.instance.heartbeat.v1:
         $ref: '#/components/messages/openits-collector.instance.heartbeat.v1'
 
+  openits-collector.instance.log.v1:
+    address: openits-collector.{region}.{agency}.{agency_unit}.instance.{site}.log
+    title: instance — log
+    parameters:
+      region:
+        description: Tenant region token; must match ^[a-z0-9][a-z0-9-]*$.
+      agency:
+        description: Tenant agency token; must match ^[a-z0-9][a-z0-9-]*$.
+      agency_unit:
+        description: Tenant agency-unit token; must match ^[a-z0-9][a-z0-9-]*$.
+      site:
+        description: |
+          The collector's site, standing in for the device id: these events
+          are about the collector itself, and ce-source names the same site
+          (ADR 0019 clause 2).
+    messages:
+      openits-collector.instance.log.v1:
+        $ref: '#/components/messages/openits-collector.instance.log.v1'
+
 operations:
   publishDeviceStatusChanged:
     action: send
@@ -143,6 +162,10 @@ operations:
     action: send
     channel:
       $ref: '#/channels/openits-collector.instance.heartbeat.v1'
+  publishInstanceLog:
+    action: send
+    channel:
+      $ref: '#/channels/openits-collector.instance.log.v1'
 
 components:
   messages:
@@ -261,7 +284,7 @@ components:
         $ref: '#/components/schemas/cloudEventHeaders'
       payload:
         type: object
-        required: [occurred_at, collector_id, version, config_revision, boot_id, uptime_s, cpu_seconds_total, memory_bytes, heap_objects_bytes, goroutines, events_published, dropped_queue_full, dropped_unpublishable, dropped_at_shutdown, dropped_no_emitter, dropped_no_source, encode_errors, adapter_panics, facets_rejected]
+        required: [occurred_at, collector_id, version, config_revision, boot_id, uptime_s, cpu_seconds_total, memory_bytes, heap_objects_bytes, goroutines, events_published, dropped_queue_full, dropped_unpublishable, dropped_at_shutdown, dropped_no_emitter, dropped_no_source, encode_errors, adapter_panics, facets_rejected, logs_suppressed]
         properties:
           occurred_at:
             type: string
@@ -321,6 +344,53 @@ components:
           facets_rejected:
             type: integer
             description: Cumulative since boot. Facets refused because their Go type was not their differ's.
+          logs_suppressed:
+            type: integer
+            description: Cumulative since boot. Warn-and-above log records not shipped as instance.log events because the per-interval limit was reached (ADR 0019 clause 10).
+
+    openits-collector.instance.log.v1:
+      contentType: application/json
+      summary: A warn-and-above record from the collector's own log.
+      description: |
+        Counters say something is wrong; logs say what (ADR 0019 clause 10).
+        Shipped at or above log_ship_level (default warn), at most a fixed
+        number per heartbeat interval; the excess is counted in the
+        heartbeat's logs_suppressed rather than shipped. Best-effort: if the
+        publish path is what is broken, its own log records cannot be
+        published either, and the cumulative counters remain the record.
+      headers:
+        $ref: '#/components/schemas/cloudEventHeaders'
+      payload:
+        type: object
+        required: [occurred_at, collector_id, version, config_revision, boot_id, level, message, attrs]
+        properties:
+          occurred_at:
+            type: string
+            format: date-time
+            description: RFC3339 UTC instant the collector observed this, never the arrival time (ADR 0019 clause 6).
+          collector_id:
+            type: string
+            description: The configured collector_id; ce-source carries the site (ADR 0019 clause 7).
+          version:
+            type: string
+            description: Collector build version.
+          config_revision:
+            type: string
+            description: First 12 hex characters of the SHA-256 of the config file's bytes (ADR 0019 clause 13).
+          boot_id:
+            type: string
+            description: Random per process; a new boot_id means the cumulative counters restarted from zero.
+          level:
+            type: string
+            description: slog level name (WARN, ERROR).
+          message:
+            type: string
+            description: The log message.
+          attrs:
+            type: object
+            additionalProperties:
+              type: string
+            description: The record's structured attributes, groups flattened to dotted keys, values as the local log renders them.
 
   schemas:
     cloudEventHeaders:

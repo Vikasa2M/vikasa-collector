@@ -24,11 +24,12 @@ const (
 	ceTypeStarted             = "openits-collector.instance.started.v1"
 	ceTypeStopping            = "openits-collector.instance.stopping.v1"
 	ceTypeHeartbeat           = "openits-collector.instance.heartbeat.v1"
+	ceTypeLog                 = "openits-collector.instance.log.v1"
 )
 
 func (emitter) CETypes() []string {
 	// Sorted: boot validation and goldens both iterate this.
-	return []string{ceTypeDeviceStatusChanged, ceTypeHeartbeat, ceTypeStarted, ceTypeStopping}
+	return []string{ceTypeDeviceStatusChanged, ceTypeHeartbeat, ceTypeLog, ceTypeStarted, ceTypeStopping}
 }
 
 type deviceStatusBody struct {
@@ -51,6 +52,14 @@ func (emitter) Encode(ev model.Event) (*wire.Encoded, bool, error) {
 	case Stopping:
 		return encodeJSON(ceTypeStopping, stoppingBody{
 			identityBody: identity(e.Base, e.Instance), UptimeSeconds: int64(e.Uptime / time.Second),
+		})
+	case Log:
+		attrs := e.Attrs
+		if attrs == nil {
+			attrs = map[string]string{} // always an object on the wire, never null
+		}
+		return encodeJSON(ceTypeLog, logBody{
+			identityBody: identity(e.Base, e.Instance), Level: e.Level, Message: e.Message, Attrs: attrs,
 		})
 	case Heartbeat:
 		return encodeJSON(ceTypeHeartbeat, heartbeatBody{

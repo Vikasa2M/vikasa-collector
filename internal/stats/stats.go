@@ -38,6 +38,9 @@ type Counters struct {
 	// FacetsRejected counts facets the engine refused because their Go type
 	// was not their differ's: an adapter bug, surfaced instead of panicking.
 	FacetsRejected atomic.Uint64
+	// LogsSuppressed counts warn-and-above log records not shipped as events
+	// because the per-interval limit was reached (ADR 0019 clause 10).
+	LogsSuppressed atomic.Uint64
 }
 
 // Snapshot is a point-in-time copy of Counters, with the JSON names /status
@@ -52,6 +55,7 @@ type Snapshot struct {
 	EncodeErrors         uint64 `json:"encode_errors"`
 	AdapterPanics        uint64 `json:"adapter_panics"`
 	FacetsRejected       uint64 `json:"facets_rejected"`
+	LogsSuppressed       uint64 `json:"logs_suppressed"`
 }
 
 // Snapshot reads every counter. Each value is individually exact; the set
@@ -67,5 +71,6 @@ func (c *Counters) Snapshot() Snapshot {
 		EncodeErrors:         c.EncodeErrors.Load(),
 		AdapterPanics:        c.AdapterPanics.Load(),
 		FacetsRejected:       c.FacetsRejected.Load(),
+		LogsSuppressed:       c.LogsSuppressed.Load(),
 	}
 }

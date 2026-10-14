@@ -14,6 +14,7 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/internal/cloudevents"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/internal/durable"
+	"github.com/Vikasa2M/vikasa-collector/internal/logship"
 	"github.com/Vikasa2M/vikasa-collector/internal/manage"
 	"github.com/Vikasa2M/vikasa-collector/internal/publish"
 	"github.com/Vikasa2M/vikasa-collector/internal/runner"
@@ -37,6 +38,11 @@ const drainTimeout = 5 * time.Second
 // still pending. It runs before the publisher drains, because the drain
 // closes the connection both share.
 const stateFlushTimeout = 2 * time.Second
+
+// logShipLimit is how many log records are shipped as instance.log events
+// per heartbeat interval (ADR 0019 clause 10); the excess is counted in
+// logs_suppressed. Enough for a burst of genuine trouble, not a flood.
+const logShipLimit = 20
 
 // closeTimeout bounds how long shutdown waits for adapters to close. Close
 // is third-party code; a supervisor waiting on the process to exit must not
@@ -72,6 +78,20 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	if counters == nil {
 		counters = new(stats.Counters)
 	}
+	heartbeatInterval := cfg.HeartbeatInterval
+	if heartbeatInterval == 0 {
+		heartbeatInterval = config.DefaultHeartbeatInterval
+	}
+	// Ship the collector's own warn-and-above log records as events (ADR
+	// 0019 clause 10). Every record still reaches the local log; the
+	// shipper goroutine below drains these into the pipeline.
+	floor, err := cfg.LogShipFloor()
+	if err != nil {
+		return err
+	}
+	shipping := logship.NewHandler(log.Handler(), floor, logShipLimit)
+	shipping.Configure(heartbeatInterval, counters)
+	log = slog.New(shipping)
 	if err := manage.ValidateAddr(opts.StatusAddr); err != nil {
 		return err
 	}
@@ -205,11 +225,21 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		})
 		wg.Go(func() { r.Run(ctx) })
 	}
-	heartbeatInterval := cfg.HeartbeatInterval
-	if heartbeatInterval == 0 {
-		heartbeatInterval = config.DefaultHeartbeatInterval
-	}
 	wg.Go(func() { runHeartbeat(ctx, heartbeatInterval, inst, started, counters, sink) })
+	// The shipper stops with the runners, before the drain: a record logged
+	// while draining (say, an event not queued) must not loop back into a
+	// publisher that is closing.
+	wg.Go(func() {
+		for {
+			select {
+			case r := <-shipping.Records():
+				sink([]model.Event{health.Log{Base: model.Base{OccurredAt: r.Time}, Instance: inst,
+					Level: r.Level, Message: r.Message, Attrs: r.Attrs}})
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
 
 	<-ctx.Done()
 

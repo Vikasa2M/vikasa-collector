@@ -1,7 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +14,7 @@ import (
 
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
+	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
 
 // ADR 0019 clause 5: a stable per-collector offset — the same every boot,
@@ -102,4 +107,79 @@ func TestInstanceEventsReachTheBus(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "stopping on clean shutdown", func() bool { return seen("openits-collector.instance.stopping.v1") != "" })
+}
+
+// panickingASC always panics: a collector fault that logs at warn.
+type panickingASC struct{}
+
+func (panickingASC) Descriptor() adapter.Descriptor {
+	return adapter.Descriptor{Vendor: "fixture", DeviceKind: "asc", Caps: adapter.CapState}
+}
+func (panickingASC) Close() error                                  { return nil }
+func (panickingASC) Read(context.Context) (*model.Snapshot, error) { panic("adapter bug") }
+
+// ADR 0019 clause 10, end to end: a warn-level record — here clause 12's
+// adapter-fault warning — reaches the bus as instance.log with its
+// structured attributes, while still going to the local log.
+func TestWarnLogsReachTheBusAsInstanceLog(t *testing.T) {
+	ns := startNATS(t)
+	nc, err := nats.Connect(ns.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	logs := make(chan map[string]any, 16)
+	if _, err := nc.Subscribe("openits-collector.>", func(m *nats.Msg) {
+		if m.Header.Get("ce-type") == "openits-collector.instance.log.v1" {
+			var body map[string]any
+			_ = json.Unmarshal(m.Data, &body)
+			logs <- body
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := adapter.NewRegistry()
+	reg.Register(panickingASC{}.Descriptor(), func(string, map[string]any) (adapter.Adapter, error) { return panickingASC{}, nil })
+	cfg := &config.Config{
+		Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1",
+		CollectorID: "metro-cab-1-collector", ModelVersion: "openits/v1",
+		Devices: []config.Device{{ID: "asc-1", Vendor: "fixture", DeviceKind: "asc", PollInterval: 20 * time.Millisecond}},
+	}
+	var local bytes.Buffer
+	var localMu sync.Mutex
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test",
+			Logger: slog.New(slog.NewTextHandler(&lockedWriter{w: &local, mu: &localMu}, nil))})
+	}()
+	defer func() { cancel(); <-done }()
+
+	select {
+	case body := <-logs:
+		attrs, _ := body["attrs"].(map[string]any)
+		if body["level"] != "WARN" || !strings.Contains(body["message"].(string), "adapter fault") ||
+			attrs["device"] != "asc-1" || attrs["adapter"] != "fixture-asc" {
+			t.Fatalf("instance.log = %v", body)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no instance.log event")
+	}
+	localMu.Lock()
+	defer localMu.Unlock()
+	if !strings.Contains(local.String(), "adapter fault") {
+		t.Fatal("the record did not also reach the local log")
+	}
+}
+
+type lockedWriter struct {
+	w  *bytes.Buffer
+	mu *sync.Mutex
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }

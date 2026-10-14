@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"regexp"
 	"slices"
@@ -63,6 +64,10 @@ type Config struct {
 	// HeartbeatInterval is how often the collector reports its own health
 	// (ADR 0019 clause 3). Zero means DefaultHeartbeatInterval.
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
+	// LogShipLevel is the lowest level of the collector's own log records
+	// also published as instance.log events (ADR 0019 clause 10). Empty
+	// means warn.
+	LogShipLevel string `yaml:"log_ship_level"`
 
 	// Revision identifies the config file's exact bytes (a SHA-256 prefix),
 	// so fleet tooling can tell which config a running collector loaded.
@@ -164,6 +169,12 @@ func (c *Config) validate(reg *adapter.Registry) error {
 	case c.HeartbeatInterval < minHeartbeatInterval:
 		return fmt.Errorf("heartbeat_interval %v is below the %v minimum", c.HeartbeatInterval, minHeartbeatInterval)
 	}
+	if c.LogShipLevel == "" {
+		c.LogShipLevel = "warn"
+	}
+	if _, err := c.LogShipFloor(); err != nil {
+		return err
+	}
 	if !slices.Contains(wire.SupportedModelVersions, c.ModelVersion) {
 		return fmt.Errorf("model_version %q is not supported by this build (want one of %s)",
 			c.ModelVersion, strings.Join(wire.SupportedModelVersions, ", "))
@@ -211,4 +222,16 @@ func (c *Config) validate(reg *adapter.Registry) error {
 		}
 	}
 	return nil
+}
+
+// LogShipFloor parses LogShipLevel; empty means warn.
+func (c *Config) LogShipFloor() (slog.Level, error) {
+	if c.LogShipLevel == "" {
+		return slog.LevelWarn, nil
+	}
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(c.LogShipLevel)); err != nil {
+		return 0, fmt.Errorf("log_ship_level %q: want debug, info, warn or error", c.LogShipLevel)
+	}
+	return l, nil
 }

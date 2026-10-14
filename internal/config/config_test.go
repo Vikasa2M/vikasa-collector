@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -356,5 +357,24 @@ func TestHeartbeatInterval(t *testing.T) {
 		if _, err := Load(write(t, validYAML+"heartbeat_interval: "+bad+"\n"), regWith("ntcip", "asc")); err == nil {
 			t.Errorf("heartbeat_interval %s accepted", bad)
 		}
+	}
+}
+
+// log_ship_level defaults to warn (ADR 0019 clause 10) and is validated at
+// boot like every other value.
+func TestLogShipLevel(t *testing.T) {
+	cfg, err := Load(write(t, validYAML), regWith("ntcip", "asc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, _ := cfg.LogShipFloor(); l != slog.LevelWarn {
+		t.Fatalf("default floor = %v, want WARN", l)
+	}
+	cfg, err = Load(write(t, validYAML+"log_ship_level: error\n"), regWith("ntcip", "asc"))
+	if l, _ := cfg.LogShipFloor(); err != nil || l != slog.LevelError {
+		t.Fatalf("error floor = %v (err %v)", l, err)
+	}
+	if _, err := Load(write(t, validYAML+"log_ship_level: loud\n"), regWith("ntcip", "asc")); err == nil {
+		t.Fatal("log_ship_level: loud accepted")
 	}
 }
