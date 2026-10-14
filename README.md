@@ -30,17 +30,23 @@ task guides, configuration, what will fail a PR: [`docs/README.md`](docs/README.
 
 ## Status
 
-Gen-2 rebuild in progress. The domain model, the synth engine and the full
-publish path are complete: eight facet kinds, eight differs, and 25 catalog
-ce-types plus two collector-health ce-types, each pinned by a byte-exact
-golden. Events reach JetStream as CloudEvents in the NATS reference
-profile's Tier 2 shape (binary mode, deterministic ULID `ce-id`,
-seven-token namespace-rooted subjects).
+Gen-2, pre-1.0. The core is complete: nine facet kinds and nine differs,
+and a publish path carrying 29 catalog ce-types plus five collector-owned
+ones, each pinned by a byte-exact golden. Events reach JetStream as
+CloudEvents in the NATS reference profile's Tier 2 shape (binary mode,
+deterministic ULID `ce-id`, seven-token namespace-rooted subjects).
 
-What is missing is **adapters**. One exists — `ntcip-asc` — producing three
-of the eight facet kinds. The other five are modeled, diffed and wired with
-no device on the other end, which makes them the best first contribution in
-the repo: see [starter tasks](docs/reference/starter-tasks.md).
+The collector is built to be left alone in a cabinet: it boots without its
+broker and queues until it appears, keeps its previous device state across
+restarts so nothing standing is re-announced, bounds every shutdown, serves a
+loopback `/livez`, `/readyz` and `/status`, and reports its own health and
+warnings on the bus. Release builds are linux `amd64`/`arm64` with a
+hardened systemd unit — see
+[deploying a collector](docs/how-to/deploy-a-collector.md).
+
+What is missing is **adapters**. Two exist — `ntcip-asc` and `ntcip-dms` —
+and the other device kinds are modeled, diffed and wired with no device on
+the other end; see [starter tasks](docs/reference/starter-tasks.md).
 
 Events can still be dropped with a warning, and that is the designed
 behaviour rather than a gap: the emitter declines anything it cannot
