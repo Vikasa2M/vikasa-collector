@@ -75,12 +75,12 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 
 ### The code does not meet a bar the docs correctly state
 
-**49 catalog ce-types are declared upstream and unmapped, 3 of them owed
+**48 catalog ce-types are declared upstream and unmapped, 3 of them owed
 in services the collector already serves.** [ADR 0016](adr/0016-collector-as-transitional-shim.md)
 makes this a *collector* gap by definition: the collector adapts to the
 catalog, so a ce-type the pinned release declares and `internal/wire/openits`
 never mapped is work owed here, not evidence the catalog is wrong. Against
-the v0.5.0 pin the emitter maps 28 of the catalog's 77 ce-types.
+the v0.5.0 pin the emitter maps 29 of the catalog's 77 ce-types.
 
 The live list is not this paragraph: it is the `unmapped` allowlist in
 `internal/wire/openits/catalog_test.go`, which the catalog-conformance
@@ -95,7 +95,7 @@ no longer declared fails as stale. Each entry carries one of four reasons:
   events. Nothing in the collector commands anything
   (the SDK has no command path at all, by
   [ADR 0021](adr/0021-sdk-interfaces-ship-with-their-first-implementer.md)).
-- **signal control, not yet assessed per event** (12) — most are high-rate
+- **signal control, not yet assessed per event** (11) — most are high-rate
   per-cycle events an SNMP poller structurally cannot observe; they want a
   controller pushing, which is the end state ADR 0016 expects to make the
   collector unnecessary. Each needs an individual verdict.

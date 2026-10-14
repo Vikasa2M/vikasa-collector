@@ -167,7 +167,6 @@ var unmapped = map[string]unmappedReason{
 	// zone-occupancy
 	"openits.zone-occupancy.zone-occupancy-changed.v1": owedServiceAlreadyWired,
 	// signal-control
-	"openits.signal-control.comm-health-event.v1":           signalControlNotAssessed,
 	"openits.signal-control.controller-fault-event.v1":      signalControlNotAssessed,
 	"openits.signal-control.coordination-change.v1":         signalControlNotAssessed,
 	"openits.signal-control.detector-transition.v1":         signalControlNotAssessed,

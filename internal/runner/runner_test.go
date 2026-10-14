@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Vikasa2M/vikasa-collector/internal/stats"
 	"github.com/Vikasa2M/vikasa-collector/internal/synth"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
@@ -44,6 +45,11 @@ func nilSnap() (*model.Snapshot, error)   { return nil, nil }
 
 func collect(t *testing.T, script []func() (*model.Snapshot, error), needAtLeast int) []model.Event {
 	t.Helper()
+	return collectWith(t, script, needAtLeast, nil)
+}
+
+func collectWith(t *testing.T, script []func() (*model.Snapshot, error), needAtLeast int, c *stats.Counters) []model.Event {
+	t.Helper()
 	var mu sync.Mutex
 	var events []model.Event
 	done := make(chan struct{})
@@ -60,7 +66,7 @@ func collect(t *testing.T, script []func() (*model.Snapshot, error), needAtLeast
 		}
 	}
 	r := New(&scriptedAdapter{script: script}, Config{DeviceID: "asc-1", Interval: 5 * time.Millisecond,
-		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out})
+		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out, Counters: c})
 	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -106,27 +112,37 @@ func TestFailureThenRecoveryEmitsHealthTransitions(t *testing.T) {
 	}
 }
 
-func TestPanickingAdapterIsAFailedPollNotACrash(t *testing.T) {
-	events := collect(t, []func() (*model.Snapshot, error){panicRead, okSnap}, 2)
-	if len(events) < 2 {
-		t.Fatal("runner must survive adapter panic and keep polling")
+// ADR 0019 clause 12: an adapter panic is a collector fault, not a device
+// fault. The device was never contacted and may be perfectly healthy, so it
+// must not be reported unreachable — on the catalog root that would claim a
+// controller stopped answering when our code crashed, and a bad adapter
+// release would present as a wave of dead devices. It is counted instead,
+// and the runner keeps polling.
+func TestAdapterPanicIsNotADeviceFault(t *testing.T) {
+	var c stats.Counters
+	events := collectWith(t, []func() (*model.Snapshot, error){panicRead, okSnap}, 1, &c)
+	for _, ev := range events {
+		if _, ok := ev.(model.DeviceStatusChanged); ok {
+			t.Fatalf("adapter panic produced %+v; it is not a device fault", ev)
+		}
 	}
-	if h, ok := events[0].(model.DeviceStatusChanged); !ok || h.Reachable {
-		t.Fatalf("first event should be unreachable health transition, got %+v", events[0])
+	if c.AdapterPanics.Load() != 1 {
+		t.Fatalf("AdapterPanics = %d, want 1", c.AdapterPanics.Load())
 	}
 }
 
-// A broken adapter that returns (nil, nil) — no error, but no snapshot
-// either — must not nil-deref the runner (pollOnce stamps DeviceKind on the
-// snapshot and hands it to Engine.Apply). It must be treated as a failed
-// poll, exactly like a returned error, and the runner must keep polling.
-func TestNilSnapshotIsAFailedPollNotACrash(t *testing.T) {
-	events := collect(t, []func() (*model.Snapshot, error){nilSnap, okSnap}, 2)
-	if len(events) < 2 {
-		t.Fatal("runner must survive a nil snapshot with no error and keep polling")
+// The same holds for the other adapter contract violation: a nil snapshot
+// with no error.
+func TestNilSnapshotIsNotADeviceFault(t *testing.T) {
+	var c stats.Counters
+	events := collectWith(t, []func() (*model.Snapshot, error){nilSnap, okSnap}, 1, &c)
+	for _, ev := range events {
+		if _, ok := ev.(model.DeviceStatusChanged); ok {
+			t.Fatalf("nil snapshot produced %+v; it is not a device fault", ev)
+		}
 	}
-	if h, ok := events[0].(model.DeviceStatusChanged); !ok || h.Reachable {
-		t.Fatalf("first event should be unreachable health transition, got %+v", events[0])
+	if c.AdapterPanics.Load() != 1 {
+		t.Fatalf("AdapterPanics = %d, want 1", c.AdapterPanics.Load())
 	}
 }
 

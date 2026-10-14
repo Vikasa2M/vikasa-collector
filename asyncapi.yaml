@@ -6,8 +6,8 @@
 # schema churn. openits-models publishes its own asyncapi.yaml for the catalog
 # events the wire emitters relay; this file covers only the collector-owned
 # root `openits-collector.*` — the collector instance's own health
-# (`instance.*`, ADR 0019), plus device reachability (`health.*`) until it
-# moves to the catalog's comm-health-event.
+# (`instance.*`, ADR 0019), plus device reachability (`health.*`) for device
+# kinds whose service has no comm-health-event in the pinned catalog.
 #
 # Unlike the catalog's bare addresses, addresses here are tenant-parameterized:
 # the CE `type` is the schema identity, while the NATS subject roots the
@@ -148,12 +148,20 @@ components:
   messages:
     openits-collector.health.device-status-changed.v1:
       contentType: application/json
-      summary: A device's reachability changed (up→down or down→up).
+      summary: A device's reachability changed (up→down or down→up), for a device kind with no catalog comm-health channel.
       description: |
+        A fallback (ADR 0019, as amended). A device's reachability is a catalog
+        fact and goes out as <service>.comm-health-event (comm-lost /
+        comm-restored) wherever the pinned catalog has that channel —
+        signal-control today. This collector-owned event carries it only for
+        device kinds whose service does not yet (DMS today), so it is not lost.
+
         Emitted only on transitions, never per failed poll: the first failure
         after success reports unreachable, and the first success after failure
         reports reachable. A poll cut short by collector shutdown is not a
-        device failure and does not appear here.
+        device failure and does not appear here, and neither is an adapter
+        panic or a nil snapshot: those are collector faults, counted as
+        adapter_panics on the heartbeat (ADR 0019 clause 12).
       headers:
         $ref: '#/components/schemas/cloudEventHeaders'
       payload:
