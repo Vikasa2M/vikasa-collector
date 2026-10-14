@@ -27,5 +27,6 @@ immutable once accepted; reversals get a new ADR that supersedes the old.
 | [0019](0019-collector-self-health.md) | Collector self-health: a periodic heartbeat on a per-instance subject |
 | [0020](0020-broker-absence-is-latency.md) | Broker absence is latency, not loss: background connect, held synthesis, bounded publish queue |
 | [0021](0021-sdk-interfaces-ship-with-their-first-implementer.md) | SDK interfaces ship with their first implementer (amends 0004) |
+| [0022](0022-transport-security-and-credentials.md) | **Proposed** — transport security and credentials: creds file not URL, plaintext only on loopback, least-privilege broker user |
 
 Start at the [documentation hub](../README.md) for everything that is not a decision record.
