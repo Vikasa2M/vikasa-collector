@@ -42,3 +42,12 @@ jobs:
       # build would not catch a platform-specific break.
       - name: cross-compile
         run: make cross
+
+      # The release config is only exercised when a release is cut; check it
+      # on every change so a broken one is caught here, not at release time.
+      - name: goreleaser check
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: check

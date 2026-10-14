@@ -1,4 +1,4 @@
-.PHONY: build cross test vet lint vuln tidy-check dev lint-boundary lint-boundary-selftest lint-boundary-replace-selftest lint-boundary-tag-selftest lint-docs check
+.PHONY: build cross release-snapshot test vet lint vuln tidy-check dev lint-boundary lint-boundary-selftest lint-boundary-replace-selftest lint-boundary-tag-selftest lint-docs check
 
 # Developer tools live in their own module (tools/go.mod) so their dependency
 # graphs never touch the collector's. Versions are pinned there, not here.
@@ -11,6 +11,13 @@ build:
 cross:
 	GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/collector
 	GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/collector
+
+# Build the release artifacts locally (dist/), exactly as a release would,
+# without publishing. Needs goreleaser v2 on PATH; CI pins v2.18.2. Not a Go
+# tool dependency: goreleaser requires a newer Go than this module's
+# toolchain, and its own prebuilt binary is the supported install.
+release-snapshot:
+	goreleaser release --snapshot --clean
 
 # One run, race-enabled: poll loops and the publisher are concurrent by
 # nature, so a non-race run proves less and costs a second pass. -shuffle

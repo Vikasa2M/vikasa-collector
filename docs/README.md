@@ -42,7 +42,7 @@ empties out as that work ships.
 | Understand how the pieces fit together, end to end | [`explanation/architecture.md`](explanation/architecture.md) — the document a newcomer reads first in this tier; it links onward to the other four |
 | Consume events the collector publishes | [`reference/consumer-contract.md`](reference/consumer-contract.md) — delivery, duplicates, ordering, and what restart does to the stream |
 | Configure a deployment | [`reference/configuration.md`](reference/configuration.md) — every `collector.yaml` field and every command-line flag: type, default, validation |
-| Deploy a collector to a fleet | [`how-to/deploy-a-collector.md`](how-to/deploy-a-collector.md) — honest stub; the deploy path isn't built yet (successor B) |
+| Deploy a collector | [`how-to/deploy-a-collector.md`](how-to/deploy-a-collector.md) — one cabinet: install, systemd, health checks, upgrade and rollback. Fleet-scale rollout is still a spec |
 | Know what is already known-broken | [Known gaps and successor work](#known-gaps-and-successor-work) — every open finding the truth pass left behind, and what closing each one involves |
 
 ## Other task guides in `.claude/skills/`
