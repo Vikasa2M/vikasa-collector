@@ -40,6 +40,7 @@ var samples = []model.Event{
 	Started{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance},
 	Stopping{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance, Uptime: time.Minute},
 	Heartbeat{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance, Uptime: time.Hour, Resource: ReadResource()},
+	Log{Base: model.Base{OccurredAt: time.Now().UTC()}, Instance: instance, Level: "WARN", Message: "m", Attrs: map[string]string{"k": "v"}},
 }
 
 func loadAsyncAPI(t *testing.T) asyncAPI {

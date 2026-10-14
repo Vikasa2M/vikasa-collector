@@ -106,6 +106,11 @@ model_version: openits/v1
 # 10s minimum. About 6.5 MB per cabinet per month at the default.
 # heartbeat_interval: 300s
 
+# The collector's own warn-and-above log records are also published as
+# openits-collector.instance.log.v1, at most 20 per heartbeat interval, so a
+# cabinet nobody can visit still says what went wrong. Optional; default warn.
+# log_ship_level: warn
+
 devices:
   # vendor + device_kind select the adapter: registry key "<vendor>-<device_kind>".
   # "ntcip" is itself a vendor — the generic, standards-only implementation

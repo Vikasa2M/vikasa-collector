@@ -25,7 +25,7 @@ func TestSnapshotJSONNamesArePinned(t *testing.T) {
 	want := []string{
 		"adapter_panics", "dropped_at_shutdown", "dropped_no_emitter", "dropped_no_source",
 		"dropped_queue_full", "dropped_unpublishable", "encode_errors", "events_published",
-		"facets_rejected",
+		"facets_rejected", "logs_suppressed",
 	}
 	keys := slices.Collect(maps.Keys(got))
 	slices.Sort(keys)

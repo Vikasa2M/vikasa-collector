@@ -57,6 +57,19 @@ type Heartbeat struct {
 // EventKind implements model.Event.
 func (Heartbeat) EventKind() string { return "collector-heartbeat" }
 
+// Log is one warn-and-above record shipped from the collector's own log
+// (ADR 0019 clause 10), with its structured attributes kept.
+type Log struct {
+	model.Base
+	Instance
+	Level   string
+	Message string
+	Attrs   map[string]string
+}
+
+// EventKind implements model.Event.
+func (Log) EventKind() string { return "collector-log" }
+
 // Resource is the process's own resource use. CPU is cumulative seconds, not
 // a percentage: the hub differentiates, and a busy loop shows as CPU
 // climbing against a flat heap. The runtime refreshes its CPU estimate at
@@ -132,4 +145,11 @@ type heartbeatBody struct {
 	HeapObjectsBytes uint64  `json:"heap_objects_bytes"`
 	Goroutines       uint64  `json:"goroutines"`
 	stats.Snapshot
+}
+
+type logBody struct {
+	identityBody
+	Level   string            `json:"level"`
+	Message string            `json:"message"`
+	Attrs   map[string]string `json:"attrs"`
 }

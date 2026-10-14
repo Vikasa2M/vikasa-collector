@@ -362,7 +362,7 @@ func (p *Publisher) drain(ctx context.Context) {
 			recovered()
 		case permanent(err):
 			p.counters.DroppedUnpublishable.Add(1)
-			p.log.Error("event dropped: broker will never accept it", "subject", inflight.Subject, "err", err)
+			p.log.Error("event dropped: broker will never accept it", "subject", inflight.Subject, "err", p.scrub.Replace(err.Error()))
 			inflight = nil
 		default:
 			// Re-provision before the next attempt. A failure can mean the
