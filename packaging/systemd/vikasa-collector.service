@@ -21,6 +21,9 @@ After=nats.service
 Type=simple
 # The config holds SNMP community strings, so it is a secret: install it
 # 0640 root:vikasa-collector, readable by root and this service only.
+# For an authenticated or remote broker, add -nats-creds (and -nats-ca for a
+# private CA); the .creds file is a secret like the config. See the deploy
+# guide. Never put credentials in -nats: the collector refuses them.
 ExecStart=/usr/local/bin/vikasa-collector -config /etc/vikasa-collector/collector.yaml -log-format json
 Restart=on-failure
 RestartSec=5s

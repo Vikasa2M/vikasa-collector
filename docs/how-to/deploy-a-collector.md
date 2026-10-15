@@ -83,6 +83,69 @@ everything it does not need denied (`systemd-analyze security` rates it 1.3,
 It logs JSON to the journal; adjust `ExecStart` for `-log-level` or a
 different `-nats` or `-status-addr`.
 
+### An authenticated or remote broker
+
+The default — an unauthenticated broker on loopback — needs nothing here.
+When the broker requires a credential, or is on another host, give the
+collector a NATS `.creds` file, and for another host a `tls://` URL
+([ADR 0022](../adr/0022-transport-security-and-credentials.md)):
+
+```bash
+sudo install -m 0640 -o root -g vikasa-collector collector.creds /etc/vikasa-collector/collector.creds
+sudo systemctl edit vikasa-collector   # then, in the override:
+```
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/vikasa-collector -config /etc/vikasa-collector/collector.yaml -log-format json \
+  -nats tls://broker.cabinet.lan:4222 \
+  -nats-creds /etc/vikasa-collector/collector.creds \
+  -nats-ca /etc/vikasa-collector/fleet-ca.pem
+```
+
+The collector refuses to start, with the reason, on credentials written into
+`-nats` (they would be visible to `ps`), on a non-loopback broker that is not
+`tls://`, and on a `.creds` file readable by other users. `-nats-ca` is only
+for a private CA; without it the system roots verify the broker. Nothing
+turns verification off.
+
+**Grant the collector's user exactly this**, shown for tenant
+`us-ga`/`metro`/`d01` under the default subject template — substitute your
+own `region`, `agency` and `agency_unit`:
+
+| Direction | Subjects | Why |
+|---|---|---|
+| publish | `openits.us-ga.metro.d01.>` | catalog events |
+| publish | `openits-collector.us-ga.metro.d01.>` | the collector's own health and lifecycle events |
+| publish | `$JS.API.INFO` | JetStream account check, made when the state bucket is opened |
+| publish | `$JS.API.STREAM.CREATE.<stream>`, `$JS.API.STREAM.UPDATE.<stream>` for each of `OPENITS-US-GA-METRO-D01`, `OPENITS-COLLECTOR-US-GA-METRO-D01` and `KV_VIKASA_SYNTH_STATE` | the collector provisions its two streams and its state bucket |
+| publish | `$KV.VIKASA_SYNTH_STATE.>` | writing synth state ([ADR 0017](../adr/0017-durable-synth-state.md)) |
+| publish | `$JS.API.CONSUMER.CREATE.KV_VIKASA_SYNTH_STATE.>`, `$JS.API.CONSUMER.DELETE.KV_VIKASA_SYNTH_STATE.>`, `$JS.API.DIRECT.GET.KV_VIKASA_SYNTH_STATE.>` | reading synth state back at boot |
+| subscribe | `_INBOX.>` | replies to the above; nothing else |
+
+Stream names are the subject root upper-cased with `.` as `-`; a custom
+`subject.template` changes them, and the collector logs the streams it
+provisions at startup. The set is minimal as well as sufficient: a test runs
+the collector under exactly this grant, and each line removed makes it fail.
+With `nsc`:
+
+```bash
+nsc add user vikasa-collector \
+  --allow-pub 'openits.us-ga.metro.d01.>,openits-collector.us-ga.metro.d01.>' \
+  --allow-pub '$JS.API.INFO,$KV.VIKASA_SYNTH_STATE.>' \
+  --allow-pub '$JS.API.STREAM.CREATE.OPENITS-US-GA-METRO-D01,$JS.API.STREAM.UPDATE.OPENITS-US-GA-METRO-D01' \
+  --allow-pub '$JS.API.STREAM.CREATE.OPENITS-COLLECTOR-US-GA-METRO-D01,$JS.API.STREAM.UPDATE.OPENITS-COLLECTOR-US-GA-METRO-D01' \
+  --allow-pub '$JS.API.STREAM.CREATE.KV_VIKASA_SYNTH_STATE,$JS.API.STREAM.UPDATE.KV_VIKASA_SYNTH_STATE' \
+  --allow-pub '$JS.API.CONSUMER.CREATE.KV_VIKASA_SYNTH_STATE.>,$JS.API.CONSUMER.DELETE.KV_VIKASA_SYNTH_STATE.>' \
+  --allow-pub '$JS.API.DIRECT.GET.KV_VIKASA_SYNTH_STATE.>' \
+  --allow-sub '_INBOX.>'
+```
+
+Leave the subscribe list explicit: an empty one means "everything" to NATS.
+A grant that is too tight shows in the journal as `broker refused an
+operation`, naming the subject.
+
 ## 3. Check it is working
 
 The loopback management surface answers three questions

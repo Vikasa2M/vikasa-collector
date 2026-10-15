@@ -15,7 +15,7 @@ import (
 
 func startNATS(t *testing.T) *server.Server {
 	t.Helper()
-	opts := &server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()}
+	opts := &server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()}
 	ns, err := server.NewServer(opts)
 	if err != nil {
 		t.Fatal(err)

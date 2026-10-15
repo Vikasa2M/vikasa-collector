@@ -198,7 +198,7 @@ func run(stopAfter time.Duration) error {
 
 	// Port -1 asks the server for any free port, so two `make dev` runs do
 	// not fight over 4222 and neither collides with a real local broker.
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: storeDir})
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: storeDir})
 	if err != nil {
 		return fmt.Errorf("start embedded nats: %w", err)
 	}

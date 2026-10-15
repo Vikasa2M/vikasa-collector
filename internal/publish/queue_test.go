@@ -257,25 +257,24 @@ func TestDrainGivesUpAtItsDeadlineAndCountsTheRest(t *testing.T) {
 	}
 }
 
-// A NATS URL can carry credentials (user:pass@ or a bare token@). Nothing
-// the publisher logs or returns may contain them.
-func TestCredentialsInTheURLAreNeverLogged(t *testing.T) {
+// A NATS URL can carry credentials (user:pass@ or a bare token@). Start
+// refuses it before connecting (ADR 0022), and neither the refusal nor
+// anything logged may contain the secret.
+func TestCredentialsInTheURLAreRefusedUnlogged(t *testing.T) {
 	port := freePort(t)
 	startNATSOn(t, port)
-	var buf lockedBuffer // NATS callbacks log from their own goroutines
+	var buf lockedBuffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 
 	url := fmt.Sprintf("nats://alice:hunter2@127.0.0.1:%d,nats://s3cr3t-token@127.0.0.1:%d", port, port)
 	p, err := start(t.Context(), url, testTemplate(t), []string{healthType}, log, fast(10))
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		drainBounded(p)
+		t.Fatal("start accepted credentials in the URL")
 	}
-	waitFor(t, "a connection log line", func() bool { return strings.Contains(buf.String(), "broker") })
-	drainBounded(p)
-
 	for _, secret := range []string{"hunter2", "alice", "s3cr3t-token"} {
-		if strings.Contains(buf.String(), secret) {
-			t.Fatalf("log contains %q:\n%s", secret, buf.String())
+		if strings.Contains(err.Error(), secret) || strings.Contains(buf.String(), secret) {
+			t.Fatalf("%q leaked: err=%v log=%s", secret, err, buf.String())
 		}
 	}
 	if got := redactURL("::not a url::"); strings.Contains(got, "not a url") {

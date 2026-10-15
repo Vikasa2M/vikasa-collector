@@ -46,7 +46,7 @@ func (r *recordingASC) Read(context.Context) (*model.Snapshot, error) {
 
 func startNATS(t *testing.T) *server.Server {
 	t.Helper()
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

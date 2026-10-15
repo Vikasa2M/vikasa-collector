@@ -1,6 +1,6 @@
 # ADR 0022: Transport security and credentials
 
-**Status:** Proposed (2026-10-14)
+**Status:** Accepted (2026-10-15)
 
 ## Context
 The collector has been built loopback-first: it publishes to a NATS server on
@@ -85,7 +85,8 @@ It needs nothing else — in particular no subscribe on the subject roots it
 publishes to. The implementing change derives the exact permission set,
 proves it with a test that runs the collector against a broker granting only
 that set, and documents it in the deploy guide, so an operator never has to
-guess or grant `>`.
+guess or grant `>`. (Done: the set is in the deploy guide, and
+`TestLeastPrivilegeGrantIsSufficient` runs the collector under it.)
 
 **4. The uplink is the broker's job, with requirements stated here.**
 

@@ -53,6 +53,8 @@ var closeTimeout = 2 * time.Second
 type Options struct {
 	// NATSURL is the cabinet-local broker.
 	NATSURL string
+	// NATS is the broker credential and CA (ADR 0022).
+	NATS publish.Security
 	// Version is stamped into the collector's own instance events.
 	Version string
 	// Logger receives every line the collector writes. Nil means
@@ -151,7 +153,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// Start never waits for the broker (ADR 0020): it connects in the
 	// background and queues until the broker is there, so the collector boots
 	// and polls whether or not NATS is up yet.
-	pub, err := publish.Start(ctx, opts.NATSURL, tmpl, ceTypes, log, counters)
+	pub, err := publish.Start(ctx, opts.NATSURL, opts.NATS, tmpl, ceTypes, log, counters)
 	if err != nil {
 		return err
 	}

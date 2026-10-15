@@ -50,7 +50,7 @@ func (f *flakyASC) Read(context.Context) (*model.Snapshot, error) {
 
 func TestEndToEndHealthEventsReachJetStream(t *testing.T) {
 	// Embedded NATS.
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ devices:
 // from outside this package. ValidateCETypes' own failure paths are covered
 // directly in internal/subject/subject_test.go.
 func TestRunRejectsUnparseableSubjectTemplate(t *testing.T) {
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

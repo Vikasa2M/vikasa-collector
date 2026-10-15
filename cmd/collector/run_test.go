@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunPrintsVersion(t *testing.T) {
@@ -33,12 +35,19 @@ func TestRunExitCodes(t *testing.T) {
 		{"bad -log-level", []string{"-config", cfg, "-log-level", "loud"}, 2},
 		{"bad -log-format", []string{"-config", cfg, "-log-format", "xml"}, 2},
 		{"non-loopback -status-addr", []string{"-config", cfg, "-status-addr", "0.0.0.0:9471"}, 2},
+		{"credentials in -nats", []string{"-config", cfg, "-nats", "nats://alice:pw@127.0.0.1:4222"}, 2},
+		{"plaintext remote -nats", []string{"-config", cfg, "-nats", "nats://10.0.0.5:4222"}, 2},
+		{"missing -nats-creds file", []string{"-config", cfg, "-nats-creds", "/nonexistent/x.creds"}, 2},
 		{"unreadable config", []string{"-config", filepath.Join(t.TempDir(), "nope.yaml")}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			err := run(t.Context(), tc.args, &stdout, &stderr)
+			// Every case here must fail before the collector starts running; a
+			// deadline turns a regression into a failure instead of a hang.
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			err := run(ctx, tc.args, &stdout, &stderr)
 			if got := exitCode(err); got != tc.want {
 				t.Fatalf("exitCode(run(%q)) = %d (err %v), want %d", tc.args, got, err, tc.want)
 			}
