@@ -44,6 +44,8 @@ type tuning struct {
 	// counters receives every count; nil means private counters. Carried
 	// here so it is set before the drainer starts.
 	counters *stats.Counters
+	// security is the broker credential and CA (ADR 0022).
+	security Security
 }
 
 var defaults = tuning{
@@ -111,9 +113,10 @@ func StreamNameForBinding(binding string) string {
 //
 // c receives the publisher's counts (published, and the three losses); nil
 // keeps them private, readable through Stats.
-func Start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []string, log *slog.Logger, c *stats.Counters) (*Publisher, error) {
+func Start(ctx context.Context, url string, sec Security, tmpl *subject.Template, ceTypes []string, log *slog.Logger, c *stats.Counters) (*Publisher, error) {
 	tune := defaults
 	tune.counters = c
+	tune.security = sec
 	return start(ctx, url, tmpl, ceTypes, log, tune)
 }
 
@@ -134,9 +137,26 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 	if tune.counters == nil {
 		tune.counters = new(stats.Counters)
 	}
+	// Named once, at boot: an operator writing the broker grant for a
+	// custom subject template needs these (ADR 0022 decision 3).
+	streams := make([]string, len(bindings))
+	for i, b := range bindings {
+		streams[i] = StreamNameForBinding(b)
+	}
+	log.Info("publishing to streams", "streams", streams)
 	safe := redactURL(url) // the only form of url that may be logged or returned
 	scrub := scrubber(url)
-	nc, err := nats.Connect(url,
+	if err := ValidateSecurity(url, tune.security); err != nil {
+		return nil, err
+	}
+	var auth []nats.Option
+	if tune.security.CredsFile != "" {
+		auth = append(auth, nats.UserCredentials(tune.security.CredsFile))
+	}
+	if tune.security.CAFile != "" {
+		auth = append(auth, nats.RootCAs(tune.security.CAFile))
+	}
+	nc, err := nats.Connect(url, append(auth,
 		nats.Name("vikasa-collector"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
@@ -146,12 +166,17 @@ func start(ctx context.Context, url string, tmpl *subject.Template, ceTypes []st
 		nats.ReconnectBufSize(-1),
 		nats.ConnectHandler(func(*nats.Conn) { log.Info("broker connected", "url", safe) }),
 		nats.ReconnectHandler(func(*nats.Conn) { log.Info("broker reconnected", "url", safe) }),
+		// Async errors are where the broker reports a permission violation
+		// (ADR 0022 decision 3); without this a too-tight grant is silent.
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			log.Error("broker refused an operation", "url", safe, "err", scrub.Replace(err.Error()))
+		}),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
 				log.Warn("broker disconnected", "url", safe, "err", scrub.Replace(err.Error()))
 			}
 		}),
-	)
+	)...)
 	if err != nil {
 		// Never %w, and never the parser's own message: it quotes the input,
 		// and any fragment of that can be part of a password.

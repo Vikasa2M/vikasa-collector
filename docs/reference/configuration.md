@@ -13,7 +13,7 @@ YAML document in the file, fails boot rather than being ignored.
 
 ## The command line
 
-`collector.yaml` is not the whole configuration surface. Six flags are
+`collector.yaml` is not the whole configuration surface. Eight flags are
 parsed by `cmd/collector/main.go`, and none of them has a YAML equivalent:
 they describe where and how this process runs, not the tenant or device
 inventory.
@@ -21,7 +21,9 @@ inventory.
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
 | `-config` | path | — | Path to `collector.yaml`. **Required**. |
-| `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed to `publish.Start`, which connects in the background: the collector boots and polls without it, queuing events until it is reachable ([ADR 0020](../adr/0020-broker-absence-is-latency.md)). |
+| `-nats` | URL | `nats://127.0.0.1:4222` | The cabinet-local NATS server. Passed to `publish.Start`, which connects in the background: the collector boots and polls without it, queuing events until it is reachable ([ADR 0020](../adr/0020-broker-absence-is-latency.md)). A URL carrying credentials (`user:pass@`, `token@`) is refused, and so is a non-loopback broker that is not `tls://` ([ADR 0022](../adr/0022-transport-security-and-credentials.md)). |
+| `-nats-creds` | path | — | A NATS `.creds` file (user JWT and nkey seed) to authenticate with. Must exist and grant nothing to other users (no `o` permission bits). The only way to give the collector a broker credential. |
+| `-nats-ca` | path | — | The CA certificate a `tls://` broker is verified against, for a private CA. Without it the system roots are used. Verification is never skipped. |
 | `-log-level` | `debug` \| `info` \| `warn` \| `error` | `info` | Minimum level written. Case-insensitive. |
 | `-log-format` | `text` \| `json` | `text` | `text` is slog's `key=value` lines; `json` is one object per line, for a log shipper. |
 | `-status-addr` | `host:port` | `127.0.0.1:9471` | The management surface (below). Must be loopback — `127.0.0.1`, `::1` or `localhost` — because it is unauthenticated; anything else is refused at boot. Empty disables it. |
@@ -30,7 +32,9 @@ inventory.
 Logs go to stderr; `-version` goes to stdout. Exit codes separate who has to
 fix the problem: **2** means the command line itself is wrong (a missing
 `-config`, an unknown flag, an unrecognized `-log-level` or
-`-log-format` value, or a non-loopback `-status-addr` — rejected at boot,
+`-log-format` value, a non-loopback `-status-addr`, credentials in `-nats`,
+a plaintext non-loopback `-nats`, or a missing or other-readable
+`-nats-creds` — rejected at boot,
 never defaulted); **1** means the
 config or the runtime failed; **0** is a clean shutdown or `-version`.
 

@@ -18,6 +18,7 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/internal/app"
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/internal/manage"
+	"github.com/Vikasa2M/vikasa-collector/internal/publish"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 )
 
@@ -66,7 +67,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("collector", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to collector.yaml (required)")
-	natsURL := fs.String("nats", "nats://127.0.0.1:4222", "local NATS URL")
+	natsURL := fs.String("nats", "nats://127.0.0.1:4222", "NATS URL; never put credentials in it (use -nats-creds); non-loopback must be tls://")
+	natsCreds := fs.String("nats-creds", "", "NATS .creds file (user JWT + nkey seed); must not be readable by other users")
+	natsCA := fs.String("nats-ca", "", "CA certificate to verify a tls:// broker; default is the system roots")
 	logLevel := fs.String("log-level", "info", "log level: debug, info, warn, error")
 	logFormat := fs.String("log-format", "text", "log format: text, json")
 	statusAddr := fs.String("status-addr", "127.0.0.1:9471", "loopback address for /livez, /readyz, /status; empty disables")
@@ -94,6 +97,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err := manage.ValidateAddr(*statusAddr); err != nil {
 		return usageError{err}
 	}
+	natsSec := publish.Security{CredsFile: *natsCreds, CAFile: *natsCA}
+	if err := publish.ValidateSecurity(*natsURL, natsSec); err != nil {
+		return usageError{err}
+	}
 
 	reg := adapter.NewRegistry()
 	RegisterAdapters(reg)
@@ -101,7 +108,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return app.Run(ctx, cfg, reg, app.Options{NATSURL: *natsURL, Version: ver, Logger: log, StatusAddr: *statusAddr})
+	return app.Run(ctx, cfg, reg, app.Options{NATSURL: *natsURL, NATS: natsSec, Version: ver, Logger: log, StatusAddr: *statusAddr})
 }
 
 // newLogger builds the process logger from the -log-* flags. An unknown

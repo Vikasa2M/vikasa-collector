@@ -27,7 +27,7 @@ import (
 // then changes its face message and control mode, so message-changed and
 // mode-changed land. Logs every CloudEvent that reaches the bus.
 func TestDMSEventsReachJetStream(t *testing.T) {
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
