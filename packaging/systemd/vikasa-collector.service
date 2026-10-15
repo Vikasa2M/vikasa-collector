@@ -19,14 +19,19 @@ After=nats.service
 
 [Service]
 Type=simple
+# The config holds SNMP community strings, so it is a secret: install it
+# 0640 root:vikasa-collector, readable by root and this service only.
 ExecStart=/usr/local/bin/vikasa-collector -config /etc/vikasa-collector/collector.yaml -log-format json
 Restart=on-failure
 RestartSec=5s
 # A clean stop drains for up to ~10s (state flush, publish drain, adapter close).
 TimeoutStopSec=30s
 
-DynamicUser=yes
-ConfigurationDirectory=vikasa-collector
+# A static system user (see the deploy guide), not DynamicUser: the config is
+# a secret that must be group-readable by exactly this service, and a dynamic
+# user has no stable group to grant it to.
+User=vikasa-collector
+Group=vikasa-collector
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=

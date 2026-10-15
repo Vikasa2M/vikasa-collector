@@ -21,7 +21,11 @@ but not built; everything here is what that plane would drive on each host.
   ([ADR 0017](../adr/0017-durable-synth-state.md)) — that is broker
   configuration, not collector configuration.
 - **Network reach to the devices** in your config (SNMP on UDP 161 for the
-  `ntcip` adapters).
+  `ntcip` adapters). The collector only reads — it never issues an SNMP SET
+  — so give it a **read-only community**, and where a device supports SNMP
+  views, one limited to the objects its adapter reads. v1/v2c communities
+  cross the cabinet network in plaintext
+  ([ADR 0022](../adr/0022-transport-security-and-credentials.md)).
 
 ## 1. Get the release
 
@@ -47,11 +51,16 @@ land in `dist/`.
 ## 2. Install
 
 ```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin vikasa-collector
 sudo install -m 0755 vikasa-collector /usr/local/bin/vikasa-collector
 sudo install -d -m 0755 /etc/vikasa-collector
-sudo install -m 0640 collector.yaml.example /etc/vikasa-collector/collector.yaml
+sudo install -m 0640 -o root -g vikasa-collector collector.yaml.example /etc/vikasa-collector/collector.yaml
 sudo install -m 0644 vikasa-collector.service /etc/systemd/system/
 ```
+
+The config holds SNMP community strings, so it is a secret: `0640
+root:vikasa-collector` makes it readable by root and the service and nobody
+else. Keep it that way when you edit it.
 
 Edit `/etc/vikasa-collector/collector.yaml` for this cabinet — tenant
 identity, `collector_id`, `site`, and the devices. Every field, its default
@@ -68,8 +77,9 @@ sudo systemctl enable --now vikasa-collector
 systemctl status vikasa-collector   # a config error shows here, with the reason
 ```
 
-The unit runs the collector as a dynamic, unprivileged user with everything
-it does not need denied (`systemd-analyze security` rates it 1.4, "OK").
+The unit runs the collector as the unprivileged `vikasa-collector` user with
+everything it does not need denied (`systemd-analyze security` rates it 1.3,
+"OK").
 It logs JSON to the journal; adjust `ExecStart` for `-log-level` or a
 different `-nats` or `-status-addr`.
 
