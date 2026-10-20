@@ -23,6 +23,7 @@ func kinds(evs []model.Event) []string {
 }
 
 func TestFirstPollEmitsOnlyStatusReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	evs := e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}))
 	if got := kinds(evs); len(got) != 1 || got[0] != "operational-status-report" {
@@ -35,6 +36,7 @@ func TestFirstPollEmitsOnlyStatusReport(t *testing.T) {
 }
 
 func TestTransitionsEmitChangeEvents(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}))
 
@@ -67,6 +69,7 @@ func TestTransitionsEmitChangeEvents(t *testing.T) {
 }
 
 func TestFailedFacetSuspendsDiffing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}))
 
@@ -88,6 +91,7 @@ func TestFailedFacetSuspendsDiffing(t *testing.T) {
 // The Engine must propagate the snapshot's device kind onto every event it
 // synthesizes; a differ never sets it.
 func TestEngineCopiesDeviceKindOntoEvents(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	snap := &model.Snapshot{
 		DeviceID: "asc-1", DeviceKind: "asc", SampledAt: t0,
@@ -109,6 +113,7 @@ func TestEngineCopiesDeviceKindOntoEvents(t *testing.T) {
 // TestTransitionsEmitChangeEvents moves all three at once and only checks
 // presence, so it cannot catch one axis leaking an event into another.
 func TestSignalAxesChangeIndependently(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	st := model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}
 	e.Apply(snapAt(t0, st))

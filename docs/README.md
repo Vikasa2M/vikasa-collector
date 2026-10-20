@@ -103,7 +103,7 @@ no longer declared fails as stale. Each entry carries one of four reasons:
   and `zone-occupancy-changed`, in services already wired end to end.
 
 *Closing it:* per ce-type, not in bulk — each needs the domain event, the
-`ceTypeFor` entry, the `Encode` case, a golden, and deleting its
+`ceTypeFor` entry, the encoder case, a golden, and deleting its
 `unmapped` line. Start with `traffic-sensor-status-report`, the one ADR
 0016 names explicitly.
 

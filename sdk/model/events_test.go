@@ -6,6 +6,7 @@ import (
 )
 
 func TestEventKindsAndAccessors(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 7, 12, 1, 2, 3, 0, time.UTC)
 	b := Base{DeviceID: "asc-1", OccurredAt: at}
 
@@ -33,6 +34,7 @@ func TestEventKindsAndAccessors(t *testing.T) {
 // Event kinds match the catalog's ce-type event tokens (fault-raised,
 // fault-cleared, detector-report) so Plan 2's mapping stays mechanical.
 func TestFacetEventKindsAndAccessors(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 7, 16, 1, 2, 3, 0, time.UTC)
 	b := Base{DeviceID: "asc-1", OccurredAt: at}
 
@@ -63,6 +65,7 @@ func TestFacetEventKindsAndAccessors(t *testing.T) {
 // one fault proto across every service, so the kind is what tells a wire
 // emitter whether this is dms.fault-raised or signal-control.fault-raised.
 func TestEventsCarryDeviceKind(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 7, 16, 1, 2, 3, 0, time.UTC)
 	b := Base{DeviceID: "dms-1", DeviceKind: "dms", OccurredAt: at}
 
@@ -76,6 +79,7 @@ func TestEventsCarryDeviceKind(t *testing.T) {
 }
 
 func TestDMSEventKindsAndAccessors(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 7, 16, 1, 2, 3, 0, time.UTC)
 	b := Base{DeviceID: "dms-1", DeviceKind: "dms", OccurredAt: at}
 

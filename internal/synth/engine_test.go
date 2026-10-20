@@ -12,6 +12,7 @@ import (
 // kind has said "I could not read this". The failure wins: diffing the
 // facet would turn a value the adapter itself distrusts into a transition.
 func TestApplyIgnoresAFacetItsSnapshotReportsFailed(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
 	e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}))
 
@@ -38,6 +39,7 @@ func (foreignSignal) FacetKind() model.Kind { return model.KindSignalStatus }
 // the wrong type used to panic the poll loop; it is now rejected, reported,
 // and treated as no evidence at all.
 func TestApplyRejectsAWrongTypedFacet(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		facet model.Facet
@@ -74,6 +76,7 @@ func TestApplyRejectsAWrongTypedFacet(t *testing.T) {
 // Registry panics on a duplicate registration; the engine silently kept
 // the last differ. Two differs for one kind is a wiring bug either way.
 func TestNewEnginePanicsOnDuplicateKind(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		msg, _ := recover().(string)
 		if !strings.Contains(msg, string(model.KindSignalStatus)) {

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -263,9 +264,7 @@ func (s *State) load(ctx context.Context) (jetstream.KeyValue, error) {
 	}
 
 	s.mu.Lock()
-	for kk, v := range written {
-		s.written[kk] = v
-	}
+	maps.Copy(s.written, written)
 	s.mu.Unlock()
 	for _, id := range s.deviceIDs {
 		s.engine.Seed(id, byDevice[id])

@@ -27,8 +27,10 @@ is the only type implementing `wire.Emitter`
    for an `asc` and `openits.dms.fault-raised.v1` for a `dms`, off the same
    `model.FaultRaised` type). No entry means `Encode` returns
    `ok=false` immediately — not claimed.
-2. **Builds the payload**, in a type switch over `ev` in `Encode`. Each
-   case does field-by-field copies and explicit enum-to-identity lookups
+2. **Builds the payload**, in a type switch in the event's service-family
+   encoder: `encodeSignalControl`, `encodeDMS`, `encodeShared` (the
+   reachability and fault events every kind shares), and so on, one per
+   `internal/wire/openits/encode_<family>.go`. Each case does field-by-field copies and explicit enum-to-identity lookups
    (`controllerModeIdentity`, `dmsControlModeIdentity`,
    `faultKindIdentity`, and friends in `internal/wire/openits/identities.go`)
    — no reflection, no generic mapping helper. A mapping function that
@@ -106,7 +108,9 @@ re-probes only what a later pin bump could actually have moved.
    `key{event.EventKind(), deviceKind}`. Use the catalog's ce-type string
    verbatim — never templated, never derived from anything
    operator-configured.
-3. **Add a case to `Encode`'s type switch.** Build the proto message with
+3. **Add a case to the family encoder's type switch**
+   (`internal/wire/openits/encode_<family>.go`; a new service family gets
+   its own file and a line in `payload`'s list). Build the proto message with
    explicit field copies. Where the domain value has no honest identity on
    the wire, return `ok=false` from the identity-lookup function and let
    the case (and therefore `Encode`) decline — see the next section.
@@ -136,7 +140,7 @@ following these steps.
 ## Why the emitter declines rather than approximates
 
 `Encode` returning `ok=false` is not a fallback path bolted onto the type
-switch — it's the return value most mapping functions
+switches — it's the return value most mapping functions
 (`controllerModeIdentity`, `dmsControlModeIdentity`, `cctvControlModeIdentity`,
 `tourRunStateFor`) are built around, each with an `(identity, ok bool)`
 signature that forces the caller to check. `TestEncode_ModeChangedToStandby_IsNotClaimed`

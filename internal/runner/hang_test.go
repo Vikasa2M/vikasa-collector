@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Vikasa2M/vikasa-collector/internal/stats"
@@ -50,8 +51,7 @@ func (h *hangingAdapter) Read(context.Context) (*model.Snapshot, error) {
 func TestRunReturnsOnShutdownWhileAReadHangs(t *testing.T) {
 	h := newHanging()
 	t.Cleanup(func() { close(h.release) })
-	r := New(h, Config{DeviceID: "asc-1", Interval: time.Hour, Timeout: time.Hour, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
+	r := New(h, Config{Jitter: noJitter, DeviceID: "asc-1", Interval: time.Hour, Timeout: time.Hour, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -70,88 +70,89 @@ func TestRunReturnsOnShutdownWhileAReadHangs(t *testing.T) {
 // The runner must never start a second Read on the same adapter while the
 // first is still running.
 func TestHungReadIsAFailedPollAndNeverOverlaps(t *testing.T) {
-	h := newHanging()
-	t.Cleanup(func() { close(h.release) })
+	synctest.Test(t, func(t *testing.T) {
+		h := newHanging()
+		var mu sync.Mutex
+		var events []model.Event
+		out := func(evs []model.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			events = append(events, evs...)
+		}
+		r := New(h, Config{Jitter: noJitter, DeviceID: "asc-1", Interval: 10 * time.Millisecond, Timeout: 10 * time.Millisecond, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out})
 
-	var mu sync.Mutex
-	var events []model.Event
-	gotDown := make(chan struct{})
-	out := func(evs []model.Event) {
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { r.Run(ctx); close(done) }()
+
+		// Ten poll intervals on the bubble's clock: room for a second Read to
+		// start if the runner ever overlapped one.
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		cancel()
+		<-done
+		close(h.release) // the abandoned Read returns into its buffered channel
+
 		mu.Lock()
 		defer mu.Unlock()
-		for _, ev := range evs {
-			if ds, ok := ev.(model.DeviceStatusChanged); ok && !ds.Reachable && len(events) == 0 {
-				close(gotDown)
+		down := false
+		for _, ev := range events {
+			if ds, ok := ev.(model.DeviceStatusChanged); ok && !ds.Reachable {
+				down = true
 			}
 		}
-		events = append(events, evs...)
-	}
-	r := New(h, Config{DeviceID: "asc-1", Interval: 10 * time.Millisecond, Timeout: 10 * time.Millisecond, Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
-
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() { r.Run(ctx); close(done) }()
-
-	select {
-	case <-gotDown:
-	case <-time.After(2 * time.Second):
-		t.Fatal("a read hung past its poll timeout was never reported as a failed poll")
-	}
-	time.Sleep(100 * time.Millisecond) // ten more poll intervals for an overlap to show
-	cancel()
-	<-done
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.maxSeen != 1 || h.calls != 1 {
-		t.Fatalf("adapter saw %d Read calls, up to %d at once; want exactly 1 while it is hung", h.calls, h.maxSeen)
-	}
+		if !down {
+			t.Error("a read hung past its poll timeout was never reported as a failed poll")
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.maxSeen != 1 || h.calls != 1 {
+			t.Fatalf("adapter saw %d Read calls, up to %d at once; want exactly 1 while it is hung", h.calls, h.maxSeen)
+		}
+	})
 }
 
 // An adapter panic is a collector fault (ADR 0019 clause 12), so it is
 // counted where the runner recovers it, not just turned into a failed poll.
 func TestAdapterPanicIsCounted(t *testing.T) {
-	var c stats.Counters
-	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){panicRead, okSnap}}, Config{
-		DeviceID: "asc-1", Interval: 5 * time.Millisecond,
-		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Counters: &c,
+	synctest.Test(t, func(t *testing.T) {
+		var c stats.Counters
+		r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){panicRead, okSnap}}, Config{Jitter: noJitter,
+			DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+			Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Counters: &c,
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { r.Run(ctx); close(done) }()
+		time.Sleep(12 * time.Millisecond) // the panicking poll and the healthy one after it
+		synctest.Wait()
+		cancel()
+		<-done
+		if got := c.AdapterPanics.Load(); got != 1 {
+			t.Fatalf("AdapterPanics = %d, want 1", got)
+		}
 	})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() { r.Run(ctx); close(done) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for c.AdapterPanics.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-	<-done
-	if got := c.AdapterPanics.Load(); got != 1 {
-		t.Fatalf("AdapterPanics = %d, want 1", got)
-	}
 }
 
 // Every poll outcome reaches the device tracker /status and readiness read:
 // a failure, then a success that latches readiness.
 func TestPollOutcomesReachTheDeviceTracker(t *testing.T) {
-	devices := stats.NewDevices([]string{"asc-1"})
-	r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){failRead, okSnap}}, Config{
-		DeviceID: "asc-1", Interval: 5 * time.Millisecond,
-		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Devices: devices,
+	synctest.Test(t, func(t *testing.T) {
+		devices := stats.NewDevices([]string{"asc-1"})
+		r := New(&scriptedAdapter{script: []func() (*model.Snapshot, error){failRead, okSnap}}, Config{Jitter: noJitter,
+			DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+			Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: func([]model.Event) {}, Devices: devices,
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { r.Run(ctx); close(done) }()
+		time.Sleep(7 * time.Millisecond) // the failing poll and the successful one after it
+		synctest.Wait()
+		cancel()
+		<-done
+		s := devices.Snapshot()[0]
+		if !devices.EverPolled() || s.LastError != "timeout" || s.LastSuccess.IsZero() {
+			t.Fatalf("tracker = %+v (ever polled %v); want the failure and then the success", s, devices.EverPolled())
+		}
 	})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() { r.Run(ctx); close(done) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for !devices.EverPolled() && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-	<-done
-	s := devices.Snapshot()[0]
-	if !devices.EverPolled() || s.LastError != "timeout" || s.LastSuccess.IsZero() {
-		t.Fatalf("tracker = %+v (ever polled %v); want the failure and then the success", s, devices.EverPolled())
-	}
 }

@@ -22,6 +22,7 @@ var dmsEnvWarm = model.DMSEnvironment{
 
 // A report differ, not a transition differ: the first poll already reports.
 func TestDMSEnvFirstPollEmitsReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSEnvironmentDiffer())
 	evs := e.Apply(dmsEnvSnap(t0, dmsEnvWarm))
 	if len(evs) != 1 {
@@ -39,6 +40,7 @@ func TestDMSEnvFirstPollEmitsReport(t *testing.T) {
 
 // Unchanged readings still report: the event is a cadence, not a diff.
 func TestDMSEnvUnchangedStillReports(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSEnvironmentDiffer())
 	e.Apply(dmsEnvSnap(t0, dmsEnvWarm))
 	if evs := e.Apply(dmsEnvSnap(t0.Add(time.Second), dmsEnvWarm)); len(evs) != 1 {
@@ -49,6 +51,7 @@ func TestDMSEnvUnchangedStillReports(t *testing.T) {
 // The iron rule: a failed environment read is a gap in the series, never a
 // repeat of the last reading.
 func TestDMSEnvFailedReadEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSEnvironmentDiffer())
 	e.Apply(dmsEnvSnap(t0, dmsEnvWarm))
 
@@ -60,6 +63,7 @@ func TestDMSEnvFailedReadEmitsNothing(t *testing.T) {
 }
 
 func TestDMSEnvReportCarriesDeviceKind(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSEnvironmentDiffer())
 	evs := e.Apply(dmsEnvSnap(t0, dmsEnvWarm))
 	if len(evs) != 1 || evs[0].EventDeviceKind() != "dms" {

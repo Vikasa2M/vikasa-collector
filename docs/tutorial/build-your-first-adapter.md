@@ -283,22 +283,45 @@ func RegisterTo(r *adapter.Registry) {
 	})
 }
 
+// parseSNMPBlock is the trust boundary for this device's connection block:
+// config.Load passes it through unread. An unknown key, or a known key of
+// the wrong type, fails boot rather than falling back to a default.
 func parseSNMPBlock(conn map[string]any) (snmp.DialConfig, error) {
+	if err := adapter.OnlyKeys("connection", conn, "snmp"); err != nil {
+		return snmp.DialConfig{}, err
+	}
 	raw, ok := conn["snmp"].(map[string]any)
 	if !ok {
 		return snmp.DialConfig{}, fmt.Errorf("connection.snmp block required")
 	}
-	addr, _ := raw["address"].(string)
+	if err := adapter.OnlyKeys("connection.snmp", raw, "address", "community"); err != nil {
+		return snmp.DialConfig{}, err
+	}
+	addr, err := adapter.OptString("connection.snmp", raw, "address")
+	if err != nil {
+		return snmp.DialConfig{}, err
+	}
 	if addr == "" {
 		return snmp.DialConfig{}, fmt.Errorf("connection.snmp.address required")
 	}
-	community, _ := raw["community"].(string)
+	community, err := adapter.OptString("connection.snmp", raw, "community")
+	if err != nil {
+		return snmp.DialConfig{}, err
+	}
 	if community == "" {
 		community = "public"
 	}
 	return snmp.DialConfig{Address: addr, Community: community, Timeout: 2 * time.Second, Retries: 1}, nil
 }
 ```
+
+Don't shorten the reads to `addr, _ := raw["address"].(string)`. That form
+turns `address: 161` (a YAML number) into "absent", and `version: 1` into
+whatever the default is: the operator's mistake becomes a silent behaviour
+change instead of a boot failure
+([ADR 0014](../adr/0014-config-is-the-trust-boundary.md)).
+`adapter.OnlyKeys` also catches a misspelled key such as `comunity`, which
+would otherwise run as `public`.
 
 Now edit `cmd/collector/adapters.go`. Only two lines change from the file
 you cloned: one new import (`.../internal/vendors/acme`) and one new call

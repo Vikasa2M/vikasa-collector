@@ -65,10 +65,9 @@ func collectWith(t *testing.T, script []func() (*model.Snapshot, error), needAtL
 			}
 		}
 	}
-	r := New(&scriptedAdapter{script: script}, Config{DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+	r := New(&scriptedAdapter{script: script}, Config{Jitter: noJitter, DeviceID: "asc-1", Interval: 5 * time.Millisecond,
 		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out, Counters: c})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	go r.Run(ctx)
 	select {
@@ -177,11 +176,10 @@ func TestRunnerStampsDeviceKindFromDescriptor(t *testing.T) {
 
 	// Fails once (-> health event), then succeeds (-> domain event via synth).
 	script := []func() (*model.Snapshot, error){failRead, okSnap}
-	r := New(&scriptedAdapter{script: script}, Config{DeviceID: "asc-1", Interval: 5 * time.Millisecond,
+	r := New(&scriptedAdapter{script: script}, Config{Jitter: noJitter, DeviceID: "asc-1", Interval: 5 * time.Millisecond,
 		Engine: synth.NewEngine(synth.NewSignalDiffer()), Out: out})
-	r.SetJitter(func(time.Duration) time.Duration { return 0 })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	go r.Run(ctx)
 	select {
@@ -226,3 +224,6 @@ func TestNewRejectsNonPositiveInterval(t *testing.T) {
 		})
 	}
 }
+
+// noJitter starts polling at once, so tests need not wait out a random delay.
+func noJitter(time.Duration) time.Duration { return 0 }

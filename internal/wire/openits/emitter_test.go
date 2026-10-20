@@ -87,22 +87,46 @@ func TestEncode_ModeChangedOnASC_MapsControllerModeIdentities(t *testing.T) {
 	}
 }
 
-func TestEncode_ModeChangedToStandby_IsNotClaimed(t *testing.T) {
-	// ModeStandby has no controller-mode identity upstream (the set is
-	// coordinated/free/flash/preempt/priority/manual/off). Encoding it would
-	// mean inventing a near-neighbour, so the event is not claimed and the
-	// caller's loud-drop path fires. A visible drop beats a wrong mode.
-	enc, ok, err := New("cabinet-poller-1").Encode(model.ModeChanged{
-		Base: base("asc-main-and-5th", "asc"),
-		From: model.ModeNormal,
-		To:   model.ModeStandby,
-	})
-
-	if err != nil {
-		t.Fatalf("Encode returned error: %v", err)
+// A transition to a value with no honest wire identity is not claimed, and
+// the caller's loud-drop path fires: a visible drop beats a wrong value.
+func TestEncode_UnrepresentableTargetIsNotClaimed(t *testing.T) {
+	cases := []struct {
+		name string
+		ev   model.Event
+	}{
+		// ModeStandby has no controller-mode identity upstream (the set is
+		// coordinated/free/flash/preempt/priority/manual/off); encoding it
+		// would mean inventing a near-neighbour.
+		{"asc mode standby", model.ModeChanged{
+			Base: base("asc-main-and-5th", "asc"), From: model.ModeNormal, To: model.ModeStandby,
+		}},
+		// dms-control-mode has no "unknown" member. dms-control-other means
+		// "a vendor-specific mode not covered above", which is NOT the same
+		// claim as "we don't know".
+		{"dms control unknown", model.DMSControlModeChanged{
+			Base: base("dms-i35-mm214", "dms"), From: model.ControlCentral, To: model.ControlUnknown,
+		}},
+		// cctv-control-mode has no "unknown" member either; cctv-control-other
+		// is a positive claim about the camera, not an admission of ignorance.
+		{"cctv control unknown", model.CCTVControlModeChanged{
+			Base: base("cam-03", "cctv"), From: model.CCTVControlCentral, To: model.CCTVControlUnknown,
+		}},
+		// TourRunState's wire zero is STOPPED with no unspecified, so an
+		// unknown state would encode as a positive claim the tour is stopped.
+		{"cctv tour unknown", model.CCTVTourStateChanged{
+			Base: base("cam-03", "cctv"), TourID: 4, From: model.TourRunning, To: model.TourUnknown,
+		}},
 	}
-	if ok {
-		t.Errorf("emitter claimed a mode with no upstream identity; payload=%v", enc)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, ok, err := New("cabinet-poller-1").Encode(tc.ev)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+			if ok {
+				t.Errorf("emitter claimed a value with no upstream identity; payload=%v", enc)
+			}
+		})
 	}
 }
 
@@ -360,24 +384,6 @@ func TestEncode_DMSDisplayUnknown_IsMappable(t *testing.T) {
 	})
 	if w := "openits-dms-types:mode-unknown"; got.GetCurrent() != w {
 		t.Errorf("current = %q, want %q", got.GetCurrent(), w)
-	}
-}
-
-func TestEncode_DMSControlUnknown_IsNotClaimed(t *testing.T) {
-	// dms-control-mode has no "unknown" member: local/external/central/
-	// central-override/simulation/other. dms-control-other means "a
-	// vendor-specific mode not covered above", which is NOT the same claim as
-	// "we don't know", so an unknown control mode is declined.
-	_, ok, err := New("cabinet-poller-1").Encode(model.DMSControlModeChanged{
-		Base: base("dms-i35-mm214", "dms"),
-		From: model.ControlCentral,
-		To:   model.ControlUnknown,
-	})
-	if err != nil {
-		t.Fatalf("Encode returned error: %v", err)
-	}
-	if ok {
-		t.Error("emitter claimed a control mode with no upstream identity")
 	}
 }
 
@@ -1025,22 +1031,6 @@ func TestEncode_CCTVControlModeChanged(t *testing.T) {
 	}
 }
 
-func TestEncode_CCTVControlUnknownIsNotClaimed(t *testing.T) {
-	// cctv-control-mode has no "unknown" member, exactly like dms-control-mode.
-	// cctv-control-other means "a vendor mode not covered above" — a positive
-	// claim about the camera, not an admission of ignorance.
-	_, ok, err := New("cabinet-poller-1").Encode(model.CCTVControlModeChanged{
-		Base: base("cam-03", "cctv"),
-		From: model.CCTVControlCentral, To: model.CCTVControlUnknown,
-	})
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	if ok {
-		t.Error("emitter claimed a control mode with no upstream identity")
-	}
-}
-
 func TestEncode_CCTVTourStateChanged(t *testing.T) {
 	var got cctvv1.TourStateChanged
 	ceType := encodeOK(t, model.CCTVTourStateChanged{
@@ -1060,21 +1050,6 @@ func TestEncode_CCTVTourStateChanged(t *testing.T) {
 	if got.GetPreviousState() != cctvv1.TourRunState_TOUR_RUN_STATE_RUNNING ||
 		got.GetCurrentState() != cctvv1.TourRunState_TOUR_RUN_STATE_PAUSED {
 		t.Errorf("states = %v -> %v", got.GetPreviousState(), got.GetCurrentState())
-	}
-}
-
-func TestEncode_CCTVTourUnknownStateIsNotClaimed(t *testing.T) {
-	// TourRunState's wire zero is STOPPED with no unspecified, so an unknown
-	// state would encode as a positive claim that the tour is stopped.
-	_, ok, err := New("cabinet-poller-1").Encode(model.CCTVTourStateChanged{
-		Base: base("cam-03", "cctv"), TourID: 4,
-		From: model.TourRunning, To: model.TourUnknown,
-	})
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	if ok {
-		t.Error("emitter claimed an unknown tour state; the wire would render it as stopped")
 	}
 }
 

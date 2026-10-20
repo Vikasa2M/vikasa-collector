@@ -18,6 +18,7 @@ func cam(mode model.CCTVControlMode, tours ...model.CCTVTour) model.CCTVStatus {
 }
 
 func TestCCTVDiffer_FirstObservationEmitsNothing(t *testing.T) {
+	t.Parallel()
 	// Transition events need a known prior state; there is none on first poll.
 	evs := NewCCTVDiffer().Diff(nil, cam(model.CCTVControlCentral,
 		model.CCTVTour{TourID: 1, State: model.TourRunning}), camBase())
@@ -27,6 +28,7 @@ func TestCCTVDiffer_FirstObservationEmitsNothing(t *testing.T) {
 }
 
 func TestCCTVDiffer_NoChangeEmitsNothing(t *testing.T) {
+	t.Parallel()
 	prev := cam(model.CCTVControlCentral, model.CCTVTour{TourID: 1, State: model.TourRunning})
 	curr := cam(model.CCTVControlCentral, model.CCTVTour{TourID: 1, State: model.TourRunning})
 	if evs := NewCCTVDiffer().Diff(prev, curr, camBase()); len(evs) != 0 {
@@ -35,6 +37,7 @@ func TestCCTVDiffer_NoChangeEmitsNothing(t *testing.T) {
 }
 
 func TestCCTVDiffer_ControlModeTransition(t *testing.T) {
+	t.Parallel()
 	prev := cam(model.CCTVControlCentral)
 	evs := NewCCTVDiffer().Diff(prev, cam(model.CCTVControlLocal), camBase())
 	if len(evs) != 1 {
@@ -53,6 +56,7 @@ func TestCCTVDiffer_ControlModeTransition(t *testing.T) {
 }
 
 func TestCCTVDiffer_ToursTransitionIndependently(t *testing.T) {
+	t.Parallel()
 	prev := cam(model.CCTVControlCentral,
 		model.CCTVTour{TourID: 1, State: model.TourRunning},
 		model.CCTVTour{TourID: 2, State: model.TourStopped})
@@ -75,6 +79,7 @@ func TestCCTVDiffer_ToursTransitionIndependently(t *testing.T) {
 }
 
 func TestCCTVDiffer_AxesAreIndependent(t *testing.T) {
+	t.Parallel()
 	prev := cam(model.CCTVControlCentral, model.CCTVTour{TourID: 1, State: model.TourStopped})
 	curr := cam(model.CCTVControlLocal, model.CCTVTour{TourID: 1, State: model.TourRunning})
 	evs := NewCCTVDiffer().Diff(prev, curr, camBase())
@@ -84,6 +89,7 @@ func TestCCTVDiffer_AxesAreIndependent(t *testing.T) {
 }
 
 func TestCCTVDiffer_NewTourEmitsNothing(t *testing.T) {
+	t.Parallel()
 	// A tour appearing in the table has no prior state to transition from —
 	// the same reason first observation is silent.
 	prev := cam(model.CCTVControlCentral)

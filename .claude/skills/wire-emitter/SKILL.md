@@ -43,7 +43,9 @@ none of this during a pin bump.
 2. Add the routing entry to `ceTypeFor` (`internal/wire/openits/emitter.go`),
    keyed on `key{event.EventKind(), deviceKind}` — the catalog's ce-type
    string verbatim, never templated.
-3. Add the `Encode` case: field-by-field copies, explicit enum switches.
+3. Add the case to the service family's encoder
+   (`internal/wire/openits/encode_<family>.go`; a new family gets its own
+   file and a line in `payload`): field-by-field copies, explicit enum switches.
    No reflection, no mapping DSL. Where the domain value has no honest
    wire identity, return `ok=false` and let the case decline rather than
    encode an approximation.

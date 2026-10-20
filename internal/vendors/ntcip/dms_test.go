@@ -1,11 +1,11 @@
 package ntcip
 
 import (
-	"context"
 	"errors"
 	"maps"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
@@ -47,7 +47,7 @@ var healthyDMSOctets = map[string][]byte{
 
 func TestDMSReadGolden(t *testing.T) {
 	a := NewDMS("dms-1", &snmptest.Static{Values: healthyDMSInts, Octets: healthyDMSOctets})
-	snap, err := a.Read(context.Background())
+	snap, err := a.Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -69,8 +69,9 @@ func TestDMSReadGolden(t *testing.T) {
 		MessageCRC:        0x292e, // from the recorded MessageIDCode bytes
 		ActivationTrigger: model.TriggerCommand,
 	}
-	if got := f.(model.DMSStatus); !reflect.DeepEqual(got, want) {
-		t.Fatalf("DMSStatus = %+v, want %+v", got, want)
+	got := f.(model.DMSStatus)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("DMSStatus mismatch (-want +got):\n%s", diff)
 	}
 	if snap.FacetFailed(model.KindDMSStatus) {
 		t.Fatalf("unexpected dms-status facet error: %+v", snap.Errors)
@@ -91,8 +92,8 @@ func TestDMSReadGolden(t *testing.T) {
 		DoorOpen:             false,
 		DoorReported:         true,
 	}
-	if got := env.(model.DMSEnvironment); !reflect.DeepEqual(got, wantEnv) {
-		t.Fatalf("DMSEnvironment = %+v, want %+v", got, wantEnv)
+	if diff := cmp.Diff(wantEnv, env.(model.DMSEnvironment)); diff != "" {
+		t.Fatalf("DMSEnvironment mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -104,7 +105,7 @@ func TestDMSUnansweredControlModeIsFacetError(t *testing.T) {
 		}
 		fx[k] = v
 	}
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("partial data must not be a hard error: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestDMSUnansweredCurrentBufferIsFacetError(t *testing.T) {
 
 	snap, err := NewDMS("dms-1", &snmptest.Static{
 		Values: healthyDMSInts, Octets: octets,
-	}).Read(context.Background())
+	}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("partial data must not be a hard error: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestDMSMalformedMessageIDCodeIsFacetError(t *testing.T) {
 
 	snap, err := NewDMS("dms-1", &snmptest.Static{
 		Values: healthyDMSInts, Octets: octets,
-	}).Read(context.Background())
+	}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("malformed data must not be a hard error: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestDMSMalformedMessageIDCodeIsFacetError(t *testing.T) {
 }
 
 func TestDMSReadTransportErrorIsHardError(t *testing.T) {
-	_, err := NewDMS("dms-1", &snmptest.Static{Err: errors.New("timeout")}).Read(context.Background())
+	_, err := NewDMS("dms-1", &snmptest.Static{Err: errors.New("timeout")}).Read(t.Context())
 	if err == nil {
 		t.Fatal("transport failure must be a hard Read error")
 	}
@@ -165,7 +166,7 @@ func TestDMSActivateErrorTwoIsNone(t *testing.T) {
 	// 2 = none on this firmware. Treating it as an error would fire
 	// message-activation-failed every poll.
 	a := NewDMS("dms-1", &snmptest.Static{Values: healthyDMSInts, Octets: healthyDMSOctets})
-	snap, err := a.Read(context.Background())
+	snap, err := a.Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestDMSBlankMemoryTypeIsDisplayBlank(t *testing.T) {
 		oidDMSMsgTableSource:     {7, 0, 0, 0, 0},
 		oidDMSCurrentBufferMULTI: {},
 	}
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: healthyDMSInts, Octets: oct}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: healthyDMSInts, Octets: oct}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestDMSOutOfRangeControlModeIsUnknown(t *testing.T) {
 	fx := map[string]int64{}
 	maps.Copy(fx, healthyDMSInts)
 	fx[oidDMSControlMode] = 99
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestDMSUnmappedSyntaxErrorIsOther(t *testing.T) {
 	maps.Copy(fx, healthyDMSInts)
 	fx[oidDMSActivateMsgErr] = 3
 	fx[oidDMSMultiSyntaxErr] = 99
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestDMSEnvGetFailureStillReturnsStatus(t *testing.T) {
 		Octets:   healthyDMSOctets,
 		FailCall: map[int]error{2: errors.New("illum timeout")},
 	}
-	snap, err := NewDMS("dms-1", client).Read(context.Background())
+	snap, err := NewDMS("dms-1", client).Read(t.Context())
 	if err != nil {
 		t.Fatalf("env failure must not be a hard Read error: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestDMSEmptyHumidityTableStillEmitsEnvironment(t *testing.T) {
 		fx[k] = v
 	}
 	fx[oidDMSHumidityNumRows] = 0
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: fx, Octets: healthyDMSOctets}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestDMSHumidityDecodeSyntheticFixture(t *testing.T) {
 
 	snap, err := NewDMS("dms-1", &snmptest.Static{
 		Values: fx, Octets: healthyDMSOctets,
-	}).Read(context.Background())
+	}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -400,7 +401,7 @@ func TestDMSTemperatureSentinelIsUnreported(t *testing.T) {
 
 	snap, err := NewDMS("dms-1", &snmptest.Static{
 		Values: fx, Octets: healthyDMSOctets,
-	}).Read(context.Background())
+	}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -423,7 +424,7 @@ func TestDMSNoEnvSensorsOmitsEnvironmentFacet(t *testing.T) {
 		oidDMSMultiSyntaxErr: 2,
 		oidDMSMultiSyntaxPos: 0,
 	}
-	snap, err := NewDMS("dms-1", &snmptest.Static{Values: statusOnly, Octets: healthyDMSOctets}).Read(context.Background())
+	snap, err := NewDMS("dms-1", &snmptest.Static{Values: statusOnly, Octets: healthyDMSOctets}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

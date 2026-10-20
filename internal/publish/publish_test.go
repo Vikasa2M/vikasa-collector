@@ -1,7 +1,6 @@
 package publish
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -30,7 +29,7 @@ func startNATS(t *testing.T) *server.Server {
 
 func TestPublishRoundTripAndDedup(t *testing.T) {
 	ns := startNATS(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tmpl, err := subject.New(subject.Config{}, subject.Identity{Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1"})
 	if err != nil {
@@ -112,7 +111,7 @@ func TestPublishRoundTripAndDedup(t *testing.T) {
 
 func TestPublishUsesCustomTemplate(t *testing.T) {
 	ns := startNATS(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tmpl, err := subject.New(subject.Config{
 		Template: "{prefix}.{geo}.{agency}.{service}.{event}.{version}",
@@ -179,7 +178,7 @@ func TestStreamNameForBinding(t *testing.T) {
 
 func TestStartProvisionsAStreamPerNamespace(t *testing.T) {
 	ns := startNATS(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpl, err := subject.New(subject.Config{},
 		subject.Identity{Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1"})
 	if err != nil {

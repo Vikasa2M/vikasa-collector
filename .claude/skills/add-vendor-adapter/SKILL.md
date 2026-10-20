@@ -47,7 +47,10 @@ It does not apply to:
 4. Parse the `connection` block inside your `Factory`: your own top-level
    key, lowercase snake_case fields, sensible defaults over required
    knobs, and a rejected build on anything malformed rather than a dial
-   that fails later.
+   that fails later. Use `adapter.OnlyKeys` on every block (an unknown or
+   misspelled key fails) and `adapter.OptString` for each field (a
+   wrong-typed value fails). Never discard the `ok` of a type assertion
+   (`v, _ := raw["k"].(string)`): that turns a mistake into a silent default.
 5. Implement the read with one unconditional call per facet method. Per
    facet: real data or genuine absence (device has no such subsystem) →
    append to `Snapshot.Facets`; that facet's read failed → append a

@@ -31,7 +31,6 @@ type Runner struct {
 	engine     *synth.Engine
 	out        func([]model.Event)
 
-	now    func() time.Time
 	jitter func(time.Duration) time.Duration
 
 	consecutiveFailures int
@@ -77,6 +76,9 @@ type Config struct {
 	Devices *stats.Devices
 	// Log receives adapter faults; nil means slog.Default().
 	Log *slog.Logger
+	// Jitter picks the start delay within one interval, so devices sharing a
+	// poll interval do not all poll at once; nil means uniformly random.
+	Jitter func(time.Duration) time.Duration
 }
 
 // New builds a Runner for one device.
@@ -96,6 +98,9 @@ func New(dev adapter.StateReader, c Config) *Runner {
 	if c.Log == nil {
 		c.Log = slog.Default()
 	}
+	if c.Jitter == nil {
+		c.Jitter = rand.N[time.Duration]
+	}
 	return &Runner{
 		dev: dev, deviceID: c.DeviceID,
 		// From the adapter's own Descriptor: an adapter cannot forget to report
@@ -103,16 +108,9 @@ func New(dev adapter.StateReader, c Config) *Runner {
 		deviceKind: dev.Descriptor().DeviceKind,
 		interval:   c.Interval, timeout: c.Timeout,
 		engine: c.Engine, out: c.Out, counters: c.Counters, devices: c.Devices, log: c.Log,
-		now:    time.Now,
-		jitter: rand.N[time.Duration],
+		jitter: c.Jitter,
 	}
 }
-
-// SetNow overrides the clock (tests).
-func (r *Runner) SetNow(now func() time.Time) { r.now = now }
-
-// SetJitter overrides start-jitter (tests).
-func (r *Runner) SetJitter(j func(time.Duration) time.Duration) { r.jitter = j }
 
 // Run blocks until ctx is cancelled.
 func (r *Runner) Run(ctx context.Context) {
@@ -157,19 +155,19 @@ func (r *Runner) pollOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		r.devices.PollFailed(r.deviceID, r.now().UTC(), err)
+		r.devices.PollFailed(r.deviceID, time.Now().UTC(), err)
 		r.consecutiveFailures++
 		if r.consecutiveFailures == 1 {
 			r.out([]model.Event{model.DeviceStatusChanged{
-				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: r.now().UTC()},
+				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: time.Now().UTC()},
 				Reachable: false, Reason: err.Error(), ConsecutiveFailures: 1,
 			}})
 		}
 	default:
-		r.devices.PollOK(r.deviceID, r.now().UTC())
+		r.devices.PollOK(r.deviceID, time.Now().UTC())
 		if r.consecutiveFailures > 0 {
 			r.out([]model.Event{model.DeviceStatusChanged{
-				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: r.now().UTC()},
+				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: time.Now().UTC()},
 				Reachable: true, ConsecutiveFailures: 0,
 			}})
 			r.consecutiveFailures = 0

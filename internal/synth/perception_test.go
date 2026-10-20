@@ -26,6 +26,7 @@ func set(incs ...model.ZoneIncident) model.ZoneIncidents {
 }
 
 func TestZoneIncidentDiffer_FirstObservationDetectsStandingIncidents(t *testing.T) {
+	t.Parallel()
 	// Same deliberate exception the fault differ makes: an incident already in
 	// progress when the collector starts is a STATE, not a transition we
 	// missed. Staying silent would hide a stopped vehicle from the operator
@@ -47,6 +48,7 @@ func TestZoneIncidentDiffer_FirstObservationDetectsStandingIncidents(t *testing.
 }
 
 func TestZoneIncidentDiffer_NoChangeEmitsNothing(t *testing.T) {
+	t.Parallel()
 	prev := set(inc("i-1", model.IncidentMajor, 90))
 	if evs := NewZoneIncidentDiffer().Diff(prev, set(inc("i-1", model.IncidentMajor, 90)), pcpBase()); len(evs) != 0 {
 		t.Fatalf("unchanged incident emitted %d events, want 0", len(evs))
@@ -54,6 +56,7 @@ func TestZoneIncidentDiffer_NoChangeEmitsNothing(t *testing.T) {
 }
 
 func TestZoneIncidentDiffer_AssessmentChangeIsAnUpdate(t *testing.T) {
+	t.Parallel()
 	prev := set(inc("i-1", model.IncidentMinor, 60))
 	evs := NewZoneIncidentDiffer().Diff(prev, set(inc("i-1", model.IncidentMajor, 95)), pcpBase())
 	if len(evs) != 1 {
@@ -69,6 +72,7 @@ func TestZoneIncidentDiffer_AssessmentChangeIsAnUpdate(t *testing.T) {
 }
 
 func TestZoneIncidentDiffer_DisappearanceClears(t *testing.T) {
+	t.Parallel()
 	prev := set(inc("i-1", model.IncidentMajor, 90), inc("i-2", model.IncidentMinor, 50))
 	evs := NewZoneIncidentDiffer().Diff(prev, set(inc("i-1", model.IncidentMajor, 90)), pcpBase())
 	if len(evs) != 1 {
@@ -84,6 +88,7 @@ func TestZoneIncidentDiffer_DisappearanceClears(t *testing.T) {
 }
 
 func TestZoneIncidentDiffer_AxesAreIndependent(t *testing.T) {
+	t.Parallel()
 	// One poll can detect, update and clear at once; each is its own event.
 	prev := set(inc("i-1", model.IncidentMinor, 60), inc("i-2", model.IncidentMajor, 90))
 	curr := set(inc("i-1", model.IncidentMajor, 60), inc("i-3", model.IncidentMinor, 40))
@@ -106,6 +111,7 @@ func TestZoneIncidentDiffer_AxesAreIndependent(t *testing.T) {
 }
 
 func TestZoneIncidentDiffer_ReclassificationIsNotAnUpdate(t *testing.T) {
+	t.Parallel()
 	// Zone or object class changing means the sensor is describing something
 	// else. Reporting that as an "update" to the same incident would hide a
 	// re-identification behind a severity tweak.
@@ -134,6 +140,7 @@ func zones(start time.Time, crossed uint32) model.ZoneIntervals {
 // differ that emitted only one would publish half the interval and nothing
 // downstream would notice the other half was missing.
 func TestZoneIntervalDiffer_FirstObservationEmitsBothHalves(t *testing.T) {
+	t.Parallel()
 	evs := NewZoneIntervalDiffer().Diff(nil, zones(pcpAt.Add(-time.Minute), 40), pcpBase())
 	if len(evs) != 2 {
 		t.Fatalf("first observation produced %d events, want 2 (crossing + occupancy)", len(evs))
@@ -158,6 +165,7 @@ func TestZoneIntervalDiffer_FirstObservationEmitsBothHalves(t *testing.T) {
 }
 
 func TestZoneIntervalDiffer_SameIntervalReReadEmitsNothing(t *testing.T) {
+	t.Parallel()
 	start := pcpAt.Add(-time.Minute)
 	if evs := NewZoneIntervalDiffer().Diff(zones(start, 40), zones(start, 40), pcpBase()); len(evs) != 0 {
 		t.Fatalf("re-read emitted %d events, want 0", len(evs))
@@ -165,6 +173,7 @@ func TestZoneIntervalDiffer_SameIntervalReReadEmitsNothing(t *testing.T) {
 }
 
 func TestZoneIntervalDiffer_NewIntervalEmits(t *testing.T) {
+	t.Parallel()
 	prev := zones(pcpAt.Add(-2*time.Minute), 40)
 	evs := NewZoneIntervalDiffer().Diff(prev, zones(pcpAt.Add(-time.Minute), 12), pcpBase())
 	if len(evs) != 2 {
@@ -179,6 +188,7 @@ func TestZoneIntervalDiffer_NewIntervalEmits(t *testing.T) {
 }
 
 func TestZoneIntervalDiffer_EmptyZonesEmitNothing(t *testing.T) {
+	t.Parallel()
 	curr := model.ZoneIntervals{IntervalStart: pcpAt, IntervalDuration: time.Minute}
 	if evs := NewZoneIntervalDiffer().Diff(nil, curr, pcpBase()); len(evs) != 0 {
 		t.Fatalf("empty zone set emitted %d events, want 0", len(evs))

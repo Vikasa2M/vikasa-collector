@@ -3,6 +3,7 @@ package model
 import "testing"
 
 func TestDetectorSamplesIsAFacet(t *testing.T) {
+	t.Parallel()
 	var f Facet = DetectorSamples{Samples: []DetectorSample{
 		{Channel: 1, VolumeCount: 1234, OccupancyTenths: 125},
 	}}

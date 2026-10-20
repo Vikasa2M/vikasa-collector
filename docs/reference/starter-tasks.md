@@ -91,7 +91,7 @@ The next step up still needs no hardware: the three ce-types marked
 `owedServiceAlreadyWired` in the `unmapped` allowlist
 (`internal/wire/openits/catalog_test.go`) are mappings owed in services the
 collector already serves end to end. Each is a domain event, a `ceTypeFor`
-entry, an `Encode` case and a golden — follow
+entry, an encoder case and a golden — follow
 [`map-an-event-to-the-wire.md`](../how-to/map-an-event-to-the-wire.md), and
 start with `traffic-sensor-status-report`. `make check` is the whole
 feedback loop.

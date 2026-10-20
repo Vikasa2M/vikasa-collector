@@ -6,7 +6,7 @@ the guide for adding a mapping that doesn't exist yet — that's
 [`map-an-event-to-the-wire.md`](map-an-event-to-the-wire.md), and this
 document sends you there for the parts the two share rather than
 repeating them: the probe-before-you-trust-the-generated-code ritual, and
-the mechanics of adding a `ceTypeFor` entry and an `Encode` case.
+the mechanics of adding a `ceTypeFor` entry and an encoder case.
 
 ## The pin mechanism
 
