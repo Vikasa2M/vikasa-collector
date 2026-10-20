@@ -1,7 +1,7 @@
 # Skill contract
 
-Every `SKILL.md` in this directory shares one structure, so the seventh
-skill matches the first. An agent reading a skill will not notice a missing
+Every `SKILL.md` in this directory shares one structure, so each new skill
+matches the ones before it. An agent reading a skill will not notice a missing
 section on its own — it will just proceed without the guardrail — so the
 shape is enforced mechanically: `scripts/lint-docs.sh`, run by `make check`,
 checks that any skill declaring the contract (see "Opting in," below)

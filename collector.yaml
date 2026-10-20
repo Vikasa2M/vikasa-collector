@@ -13,9 +13,9 @@
 #
 #   urn:openits:<entity-kind>:<region>:<agency>:<agency_unit>:<device-id>
 #
-# site is NOT in the URN. It stays because the collector still uses it for
-# stream naming and health context, and because a device-less event (the boot
-# event) needs an id for the collector itself.
+# site is NOT in the identity triple. It is the id the collector uses for
+# itself: its own events (started, heartbeat, stopping, log) carry site where a
+# device event carries the device id, in both the subject and the URN.
 #
 # A dot would corrupt the subject and a colon would corrupt the URN, so both
 # are rejected at boot rather than producing events nobody can route or parse.

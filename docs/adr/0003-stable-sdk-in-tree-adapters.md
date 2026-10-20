@@ -1,6 +1,10 @@
 # ADR 0003: Stable SDK, in-tree adapters (Telegraf model)
 
 **Status:** Accepted (2026-07-12)
+[Note 2026-10-20: the contribution path below reads as a directory,
+`internal/vendors/<vendor>/<kind>/`; the tree uses one file per device kind,
+`internal/vendors/<vendor>/<kind>.go` (for example
+`internal/vendors/ntcip/asc.go`). The decision is unaffected.]
 
 ## Context
 The core is open source and adapters will be contributed by people we don't

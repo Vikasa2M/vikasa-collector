@@ -3,6 +3,11 @@
 **Status:** Accepted (2026-08-17). Records a rule that predates this ADR;
 written when its only sources were `AGENTS.md`, `collector.yaml`, and two
 design specs scheduled for deletion.
+The broker-absent exception in Consequences is implemented by
+[ADR 0020](0020-broker-absence-is-latency.md) (2026-10-13).
+[ADR 0022](0022-transport-security-and-credentials.md) (2026-10-15) adds boot
+refusals in the same spirit: credentials embedded in the `-nats` URL, a
+plaintext non-loopback `-nats`, and a `-nats-creds` file readable by others.
 
 ## Context
 A cabinet collector runs unattended behind cellular NAT. A misconfiguration

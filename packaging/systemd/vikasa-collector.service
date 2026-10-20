@@ -1,5 +1,9 @@
 # vikasa-collector as a systemd service. See docs/how-to/deploy-a-collector.md.
 #
+# This is a reference recipe, not the only supported way to run the
+# collector: any supervisor that honours docs/reference/runtime-contract.md
+# works (ADR 0023).
+#
 # The collector needs no privileges: it reads its config, talks SNMP (UDP) to
 # devices on the cabinet network, connects to the local NATS, and serves the
 # loopback management surface. Everything else is denied.

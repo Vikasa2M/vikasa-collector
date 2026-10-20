@@ -1,10 +1,18 @@
 # Deploy a collector
 
-How to run the collector on one cabinet's Linux host as a systemd service,
-check that it is working, and upgrade or roll it back. Fleet-scale rollout —
+**At the end** the collector runs on one cabinet's Linux host as a
+hardened systemd service, you can check that it is working, and you know
+how to upgrade and roll it back. Fleet-scale rollout —
 a control plane that executes updates and reverts bad ones — is designed in
 [`docs/specs/2026-08-09-fleet-deployment.md`](../specs/2026-08-09-fleet-deployment.md)
 but not built; everything here is what that plane would drive on each host.
+
+This is the project's **reference recipe**, not the only supported way to
+run the collector. The project ships a binary and a
+[runtime contract](../reference/runtime-contract.md)
+([ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md)). A
+container, an OS package or your own unit works the same way, as long as it
+honours that contract.
 
 ## What you need
 
@@ -29,12 +37,16 @@ but not built; everything here is what that plane would drive on each host.
 
 ## 1. Get the release
 
-Each release on GitHub carries
+**No release has been published yet.** Until one is, build the same
+archives yourself with `make release-snapshot` (needs goreleaser v2 on your
+PATH); they land in `dist/`, and you can skip to step 2.
+
+Once releases exist, each one on GitHub carries
 `vikasa-collector_<version>_linux_<arch>.tar.gz` and `checksums.txt`.
 Download both, and verify before unpacking:
 
 ```bash
-VERSION=0.1.0 ARCH=arm64   # or amd64
+VERSION=X.Y.Z ARCH=arm64   # or amd64
 curl -LO https://github.com/Vikasa2M/vikasa-collector/releases/download/v${VERSION}/vikasa-collector_${VERSION}_linux_${ARCH}.tar.gz
 curl -LO https://github.com/Vikasa2M/vikasa-collector/releases/download/v${VERSION}/checksums.txt
 sha256sum --ignore-missing -c checksums.txt
@@ -42,11 +54,8 @@ tar -xzf vikasa-collector_${VERSION}_linux_${ARCH}.tar.gz
 ```
 
 The archive holds the `vikasa-collector` binary, `collector.yaml.example`,
-the systemd unit `vikasa-collector.service`, and the license files.
-
-**Until the first release is published**, build the identical archives
-yourself with `make release-snapshot` (goreleaser v2 on your PATH); they
-land in `dist/`.
+the systemd unit `vikasa-collector.service` (from
+`packaging/systemd/`), `README.md`, and the license files.
 
 ## 2. Install
 
@@ -80,8 +89,9 @@ systemctl status vikasa-collector   # a config error shows here, with the reason
 The unit runs the collector as the unprivileged `vikasa-collector` user with
 everything it does not need denied (`systemd-analyze security` rates it 1.3,
 "OK").
-It logs JSON to the journal; adjust `ExecStart` for `-log-level` or a
-different `-nats` or `-status-addr`.
+It logs JSON to the journal. To change flags (`-log-level`, `-nats`,
+`-status-addr`, ...), override `ExecStart` with `systemctl edit` as shown
+below; the full flag list is `vikasa-collector -h`.
 
 ### An authenticated or remote broker
 
@@ -161,8 +171,8 @@ journalctl -u vikasa-collector -f
 `/readyz` returning `503` with every device in `/status` showing
 `consecutive_failures` climbing is the classic misconfiguration — the
 collector runs fine and reaches nothing. Allow at least twice the longest
-`poll_interval` before judging: the first poll comes one interval plus start
-jitter after boot.
+`poll_interval` before judging: each device's first poll comes after a
+random start delay of up to one interval.
 
 Off the box, the collector announces itself on
 `openits-collector.<region>.<agency>.<agency_unit>.instance.<site>.started`
@@ -200,5 +210,8 @@ in `/status`.
   the running version and `config_revision`, but nothing yet compares them
   with what a cabinet *should* be running.
 - **`sd_notify`** — the unit is `Type=simple`; readiness is `/readyz`.
-- **Packages and a container image** — releases ship tarballs; `.deb`/`.rpm`
-  and an image for the fleet spec's podman path are not built.
+- **Packages and a container image** — not project deliverables
+  ([ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md)). Build
+  one from the release binary against the
+  [runtime contract](../reference/runtime-contract.md) if your deployment
+  wants one.

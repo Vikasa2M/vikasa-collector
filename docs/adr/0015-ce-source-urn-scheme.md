@@ -5,6 +5,10 @@ written when its only source, `docs/specs/2026-07-21-openits-models-emitter-desi
 was retired. Supersedes the CE-source clauses of [ADR 0006](0006-tenant-scoped-subjects.md)
 and [ADR 0009](0009-configurable-subject-templates.md) only — their subject-grammar
 and CE-type decisions stand as written.
+[Note 2026-10-20: "the boot event is the only current case" of a device-less
+event, in the Decision, is no longer true. [ADR 0019](0019-collector-self-health.md)
+added `stopping`, `heartbeat` and `log` instance events, which take the same
+`site` fallback; the URN scheme itself is unchanged.]
 
 ## Context
 ADR 0006 declared CE `source` = `//<agency>/<site>/<device-id>` and ADR 0009

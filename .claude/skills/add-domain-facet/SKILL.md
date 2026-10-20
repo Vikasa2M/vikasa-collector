@@ -46,11 +46,19 @@ skill, and is the natural next step once this one is done.
    (it raises everything currently raised). Independent axes diff
    independently — never one event covering two unrelated changes. A
    counter decrease is a device reset, not a negative delta.
-5. Write tests mirroring `internal/synth/dms_test.go`'s shape: first poll
+5. **Durable state** (ADR 0017): the engine's previous facet per device is
+   stored as JSON in the `VIKASA_SYNTH_STATE` JetStream KV bucket, so a
+   restart does not re-announce standing state. Add the new facet to
+   `TestDecodeFacetRoundTripsEveryDurableKind`
+   (`internal/synth/durable_test.go`) to prove it round-trips. A facet that
+   changes on every poll (cumulative counters) should not be persisted:
+   give its differ a `Volatile() bool` returning true, as
+   `internal/synth/detector.go` does.
+6. Write tests mirroring `internal/synth/dms_test.go`'s shape: first poll
    emits nothing, no-change emits nothing, each axis transitions
    independently, combined transitions, failed-read emits nothing, events
    carry `DeviceKind`.
-6. Decide the ripple: does this event need a wire mapping now, or is
+7. Decide the ripple: does this event need a wire mapping now, or is
    "unmapped, dropping loudly at the emitter chain" an acceptable interim
    state? Either way it's a recorded decision, not a default — see the
    `wire-emitter` skill.
@@ -58,13 +66,12 @@ skill, and is the natural next step once this one is done.
 ## Verify
 
 ```bash
+go test -race ./sdk/model/... ./internal/synth/...
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-Expected: `make check` and `go test ./... -race` both pass; `gofmt -l .`
-prints nothing. A facet or differ change should never need to touch
+Expected: both pass. `make check` already runs the whole suite under
+`-race`, gofmt (through golangci-lint) and the boundary lint. A facet or differ change should never need to touch
 `internal/wire` — if the boundary lint flags it, the concept belongs
 elsewhere in the layering.
 

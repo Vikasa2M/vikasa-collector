@@ -43,17 +43,14 @@ cd vikasa-collector-tutorial
 make check
 ```
 
-Expected: every package's tests pass, the boundary lint is clean, and the
-docs lint is clean. You should see something close to:
+`make check` is the same gate CI runs: `go vet`, golangci-lint, a go.mod
+tidiness check, the race-enabled test suite, the boundary lint and its
+self-tests, and the docs lint. Expected: it exits 0, and the tail of its
+output reads something like:
 
 ```
-go vet ./...
-go test ./...
-ok  	github.com/Vikasa2M/vikasa-collector/cmd/collector	...
-ok  	github.com/Vikasa2M/vikasa-collector/internal/app	...
-...
 ./scripts/lint-boundary.sh
-lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin vX.Y.Z) against openits-models
+lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin v0.5.0) against openits-models
 lint-boundary selftest: Rule A fires correctly
 lint-boundary replace-rule selftest: Rule C fires correctly
 lint-boundary tag-rule selftest: Rule D fires correctly
@@ -61,8 +58,9 @@ lint-boundary tag-rule selftest: Rule D fires correctly
 lint-docs: clean (... docs, ... skills)
 ```
 
-There is nothing else to install. No SNMP agent, no NATS server, no
-container. Two things make that true, and both matter for what you're about
+You need only Go (the version in `go.mod`); golangci-lint is pinned in
+`tools/go.mod` and `go tool` fetches it on first use. No SNMP agent, no NATS
+server, no container. Two things make that true, and both matter for what you're about
 to build, not just for running the existing suite:
 
 - **The "device" is `snmptest.Static`.** Every adapter test in this repo,
@@ -89,11 +87,12 @@ before you add anything to it:
 go test ./internal/app/ -run TestEndToEnd -v
 ```
 
-Expected:
+Expected (a few `INFO` log lines from the collector are interleaved; they
+are normal):
 
 ```
 === RUN   TestEndToEndHealthEventsReachJetStream
---- PASS: TestEndToEndHealthEventsReachJetStream (0.01s)
+--- PASS: TestEndToEndHealthEventsReachJetStream (0.03s)
 PASS
 ok  	github.com/Vikasa2M/vikasa-collector/internal/app	0.012s
 ```
@@ -109,9 +108,10 @@ the real collector, pointed at a fake device and an embedded broker.
 
 ## 3. Read the reference implementation first
 
-Before writing anything, read `internal/vendors/ntcip/asc.go` — the one
-adapter that ships in this repo today, and the model to build from. Three
-things in its `Read` method are worth noticing, because they're the parts a
+Before writing anything, read `internal/vendors/ntcip/asc.go`. The `ntcip`
+package ships two adapters, `ntcip-asc` (signal controllers) and `ntcip-dms`
+(message signs); `asc.go` is the one this tutorial's adapter is shaped
+after. Three things in its `Read` method are worth noticing, because they're the parts a
 first draft gets wrong:
 
 1. **Per-facet failure isolation.** `Read` calls `readSignalStatus`,
@@ -134,20 +134,18 @@ present-and-empty, absent) if you want the full reasoning behind point 2
 before you write your own adapter's failure handling.
 
 **One warning before you copy anything: `ntcip-asc`'s fixtures do not meet
-this repo's own testing bar, and its alarm-bitmap table admits as much in
-its own comment.** ADR 0008 requires *recorded* fixtures — raw responses
-captured from a real or simulated device. `internal/vendors/ntcip/asc_test.go`'s
-fixtures are hand-typed Go map literals instead, and the adapter's alarm
-bitmap comment says outright that it has "never been validated against a
-physical controller." This is a known, tracked gap, not something to
-replicate — see
-[`docs/README.md`'s known-gaps list](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state)
-for the full accounting. Copy the *structure* — failure isolation, the
-absence-of-evidence handling, the golden-test shape — not the fixture
-provenance. This tutorial's own fixtures are hand-typed too (there is no
-real acme device to record from — it's invented), which is fine for
-teaching material that never ships, but would not clear review for a real
-contribution. Section 9 comes back to this.
+this repo's own testing bar.** ADR 0008 requires fixtures *recorded* from a
+real or simulated device. `internal/vendors/ntcip/asc_test.go`'s fixtures
+are hand-typed map literals, and the adapter's alarm-bitmap comment says it
+has "never been validated against a physical controller." That is a known
+gap ([`docs/README.md`'s known-gaps list](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state)),
+not a pattern. Copy `ntcip-asc`'s *structure* — failure isolation, the
+absence-of-evidence handling, the golden-test shape. For fixture
+provenance, look at `internal/vendors/ntcip/dms_test.go` instead, whose
+fixtures are transcribed from a real sign and say so. This tutorial's own
+fixtures are hand-typed too (acme is invented, so there is nothing to
+record), which is fine for teaching code that never ships. Section 9 comes
+back to this.
 
 ## 4. Write the adapter
 
@@ -520,6 +518,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -541,7 +540,9 @@ import (
 // internal/app/app_test.go's own end-to-end test does for the collector's
 // health events, aimed here at a domain event instead.
 func TestWatchEventReachJetStream(t *testing.T) {
-	ns, err := server.NewServer(&server.Options{Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	// Bind to loopback: the collector refuses a plain nats:// URL to any
+	// other host (ADR 0022), and Port -1 picks a free port.
+	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,11 +595,19 @@ devices:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	go func() { _ = app.Run(ctx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- app.Run(ctx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	// Stop the collector and wait for it before the broker shuts down. A
+	// boot failure surfaces here instead of as a silent timeout.
+	defer func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("app.Run: %v", err)
+		}
+	}()
 
 	const want = "openits.signal-control.operational-status-report.v1"
 	deadline := time.After(8 * time.Second)
@@ -624,7 +633,8 @@ Run it:
 go test ./internal/vendors/acme/ -run TestWatchEventReachJetStream -v
 ```
 
-Expected — the exact `ce-id` values are different every run (they're a
+Expected — a few `INFO` log lines from the collector are interleaved, and
+the exact `ce-id` values are different every run (they're a
 deterministic hash of, among other things, the observation timestamp, so a
 new run at a new time produces new ids; see
 [`docs/explanation/wire-boundary.md`](../explanation/wire-boundary.md) if
@@ -632,11 +642,11 @@ you want the full derivation), but the subjects and ce-types are not:
 
 ```
 === RUN   TestWatchEventReachJetStream
-    e2e_test.go:91: subject=openits-collector.us-ga.metro.d01.instance.cab-1.started ce-type=openits-collector.instance.started.v1 ce-source=urn:openits:collector:us-ga:metro:d01:cab-1 ce-id=01M09A1W6PPFSW7TVJKDHRMYYD
-    e2e_test.go:91: subject=openits.us-ga.metro.d01.signal-control.asc-1.operational-status-report ce-type=openits.signal-control.operational-status-report.v1 ce-source=urn:openits:controller:us-ga:metro:d01:asc-1 ce-id=01M09A1W74NWZEGW4RMVKGNBW5
---- PASS: TestWatchEventReachJetStream (0.02s)
+    e2e_test.go:102: subject=openits-collector.us-ga.metro.d01.instance.cab-1.started ce-type=openits-collector.instance.started.v1 ce-source=urn:openits:collector:us-ga:metro:d01:cab-1 ce-id=01M09A1W6PPFSW7TVJKDHRMYYD
+    e2e_test.go:102: subject=openits.us-ga.metro.d01.signal-control.asc-1.operational-status-report ce-type=openits.signal-control.operational-status-report.v1 ce-source=urn:openits:controller:us-ga:metro:d01:asc-1 ce-id=01M09A1W74NWZEGW4RMVKGNBW5
+--- PASS: TestWatchEventReachJetStream (0.03s)
 PASS
-ok  	github.com/Vikasa2M/vikasa-collector/internal/vendors/acme	0.023s
+ok  	github.com/Vikasa2M/vikasa-collector/internal/vendors/acme	0.5s
 ```
 
 Two events, in order: the collector's own boot event first
@@ -682,27 +692,23 @@ A few things this tutorial deliberately didn't make you do, and what to
 read before you do them for real:
 
 - **Recorded fixtures.** Both test files above use hand-typed
-  `map[string]int64` literals, same as `ntcip-asc`'s do — fine here, because
-  `acme` is invented and there is no real device to record from, and this
-  code is never merged. A real adapter contribution has to clear ADR 0008's
-  bar instead: recorded raw transport responses, not hand-typed ones. The
-  tool that would make recording easy — a fixture recorder plus adapter
-  conformance kit — does not exist yet; it's tracked as
-  [successor work in `docs/README.md`'s known-gaps list](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state),
-  alongside the exact same gap in `ntcip-asc`'s own fixtures. Until it
-  exists, "record from a real or simulated device" is a manual step you do
-  yourself and describe in the PR.
+  `map[string]int64` literals — fine here, because `acme` is invented and
+  this code is never merged. A real adapter has to clear ADR 0008's bar:
+  values captured from a real or simulated device, with a comment saying
+  where and when.
+  [`docs/how-to/record-fixtures-from-a-device.md`](../how-to/record-fixtures-from-a-device.md)
+  is the recipe; there is no recording tool yet, so it is a manual step.
 - **The full test bar for a real adapter.** You wrote a golden test and a
   failed-read test for one facet. A real adapter needs one of each *per
   facet*, plus connection-parse rejection tests and a capability-bits check
   — the complete checklist is
   [`docs/reference/test-requirements.md`'s "A new adapter" section](../reference/test-requirements.md#a-new-adapter).
-- **A real vendor, and a real first contribution.** Five of the eight facet
-  kinds this collector models are fully diffed and wired to real ce-types
-  with no adapter producing them yet —
+- **A real vendor, and a real first contribution.** Several facet kinds
+  are already modeled, diffed and wired to real ce-types with no adapter
+  producing them yet —
   [`docs/reference/starter-tasks.md`](../reference/starter-tasks.md) explains
-  why landing one of those is the safest, highest-leverage first PR in this
-  repo, and lists exactly what each of the five needs.
+  why landing one of those is the safest first PR in this repo, and lists
+  what each one needs from a device.
 - **The canonical steps, without the training wheels.**
   [`docs/how-to/add-a-vendor-adapter.md`](../how-to/add-a-vendor-adapter.md)
   is the guide this tutorial is a rehearsal for — the same path written for

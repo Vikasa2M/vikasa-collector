@@ -30,10 +30,12 @@ body:
     attributes:
       label: Does the domain model already cover this device kind?
       description: >
-        Five facet kinds are modelled, diffed and wired with nothing producing
-        them — `dms-status`, `cctv-status`, `traffic-intervals`,
-        `zone-incidents`, `zone-intervals`. If yours is one of those, your PR
-        touches `internal/vendors/` alone.
+        Nine facet kinds are modelled, diffed and wired: `signal-status`,
+        `fault-set`, `detector-samples`, `dms-status`, `dms-environment`,
+        `cctv-status`, `traffic-intervals`, `zone-incidents` and
+        `zone-intervals`. The last four have no adapter producing them yet.
+        If your device's readings fit existing facets, your PR touches
+        `internal/vendors/` alone.
       options:
         - "Yes — an existing facet covers it (adapter only)"
         - "No — the device reports something no facet models (needs a domain change first)"
@@ -88,7 +90,7 @@ body:
       label: Anything you expect to change outside `internal/vendors/`?
       description: >
         An adapter PR should touch `internal/vendors/<vendor>/<kind>.go` and
-        its test, one line in `RegisterAdapters`, and optionally
+        its test, one registration line, and optionally
         `collector.yaml`. If you expect to need more — a new facet, a differ,
         a wire mapping — describe it here. That is a legitimate and valuable
         contribution; it is just a separate one with its own bar, and it is

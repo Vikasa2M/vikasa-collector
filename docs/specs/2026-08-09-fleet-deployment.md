@@ -1,12 +1,21 @@
 # Fleet Deployment and Update Plan
 
-**Status:** Draft — scoped to Linux edge compute; one open question blocks Phase 1
+**Status:** Draft, and mostly unbuilt. Scoped to Linux edge compute. The
+fleet control plane (Phase 3b) is out of scope for this repo and does not
+exist. What is built is the collector's side: Phase 1 is done except drift
+reporting, which [ADR 0019](../adr/0019-collector-self-health.md) moved to
+the hub, and Phase 2 has a single-cabinet recipe
+([`how-to/deploy-a-collector.md`](../how-to/deploy-a-collector.md):
+release binaries and a systemd unit) but no container image and no
+health-gated auto-update. Still open: D3, M1 and M3.
 **Scale:** 10,000–15,000 cabinets, one statewide DOT operating its own fleet
 **Host scope:** A hardened industrial Linux box in the cabinet — Pi-class ARM
 (CM4/CM5 on an industrial carrier) or a small x86 industrial PC. This is the
 use case being built first. IOx is deferred, NOT designed out — see "Why the
 split still earns its place" below.
-**Decision record:** ADR 0012 (host-executed updates), ADR 0011 (subject roots)
+**Decision record:** ADR 0012 (host-executed updates), ADR 0011 (subject roots),
+ADR 0023 (the project ships a binary and a runtime contract; packaging,
+including the podman choice below, is the deployer's)
 
 ## Shape
 
@@ -15,7 +24,7 @@ than a redesign:
 
 | Layer | Owns | Linux | IOx |
 |---|---|---|---|
-| **Host mechanism** | fetch, swap, restart, local revert | systemd + `podman auto-update` | *(deferred)* IOx runtime + app versioning |
+| **Host mechanism** | fetch, swap, restart, local revert | the deployment's choice, e.g. systemd + `podman auto-update` | *(deferred)* IOx runtime + app versioning |
 | **Fleet control plane** | who updates when, gating, halt | *(out of scope for this repo, which defines only its inputs)* | same |
 
 ### Why the split still earns its place with one host type
@@ -30,8 +39,9 @@ The contract between them is **`cohort → desired version`**. On Linux a cohort
 is a container tag and a rollout is moving the tag; on IOx it is a version the
 management plane deploys. Neither executor is ours to maintain.
 
-The collector never updates itself (ADR 0012). It reports version, exposes
-readiness, and reports drift from its expected version.
+The collector never updates itself (ADR 0012). It reports the version and
+config revision it is running and exposes readiness; comparing what it runs
+with what it should run is the plane's job (ADR 0019).
 
 ## What is invariant, and what is genuinely open
 
@@ -43,8 +53,8 @@ the open question rather than widening it.
 **Invariant under every branch — buildable now, zero regret:**
 
 - The readiness signal (D1), meaning *working* rather than *running*.
-- Version and config revision reported at boot; drift reported when running
-  disagrees with expected.
+- Version and config revision reported at boot and on every heartbeat, so
+  the plane can see drift between running and expected.
 - Tolerating an absent broker at startup.
 - NATS alongside rather than embedded (D2).
 - Desired state as `(binary version, config revision)` — one reconciliation
@@ -66,7 +76,12 @@ someone else's Linux — the IOx case — the plane would have had to drive the
 revert itself, needing a command path rather than just observation. Deferring
 IOx defers that fork too.
 
-Runtime remains podman + quadlet. docker compose is out (no rollback, no
+**Runtime.** Since [ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md),
+the runtime is the fleet plane's decision, not this repo's: the collector
+ships a static binary and a
+[runtime contract](../reference/runtime-contract.md), and any packaging that
+honours it works. The reasoning below is kept as input to that decision.
+For a fleet, the earlier preference was podman + quadlet. docker compose is out (no rollback, no
 gating, no cohorts). Single-node k3s stays available but is only justified if
 the box becomes a multi-workload platform; for a dedicated collector host it
 adds a second fleet to manage — k3s upgrades and certificate lifecycle across
@@ -91,9 +106,11 @@ Proposed meaning: booted, config accepted, and **at least one successful device
 poll**. That last clause is what makes it real — it is the difference between
 "the binary runs on this host" and "this cabinet is collecting."
 
-**RESOLVED** — see `docs/specs/2026-08-09-management-surface-design.md` for the
-full surface. HTTP on loopback, `/readyz` `/livez` `/status`, with `sd_notify`
-as an optional systemd-native tightening rather than a replacement.
+**RESOLVED and built** — see
+[the management-surface spec](2026-08-09-management-surface-design.md) for
+the design and `internal/manage` for the code. HTTP on loopback, `/readyz`
+`/livez` `/status`, with `sd_notify` as an optional systemd-native
+tightening (not yet built) rather than a replacement.
 
 Two things that only surfaced when the design was worked through properly:
 
@@ -101,8 +118,9 @@ Two things that only surfaced when the design was worked through properly:
   unready, a comms outage that takes every device offline produces a restart
   loop — the collector killed repeatedly for a fault it did not cause, during
   the exact window an operator needs it reporting. Readiness answers "did this
-  version prove itself"; ongoing device health is what `DeviceStatusChanged`
-  is for. Liveness is a separate, unlatched signal used only for restarts.
+  version prove itself"; ongoing device health is what the reachability
+  events are for. Liveness is a separate, unlatched signal used only for
+  restarts.
 - **Startup grace must exceed twice the longest poll interval**, because the
   first poll arrives no sooner than the interval plus the runner's start
   jitter. Too tight and every deployment looks like a failed one.
@@ -137,11 +155,12 @@ straight to a regional hub) over splitting the durability model.
 
 ### H1 — Target platform consequences (Pi-class / industrial Linux)
 
-**ARM64 is now a first-class target.** Container images must be multi-arch
-(arm64 + amd64). Go cross-compiles trivially so the build cost is near zero,
-but there is currently NO image build in CI at all, so this is real work rather
-than a flag. Building amd64 alongside keeps an x86 industrial PC available
-without a second pipeline.
+**ARM64 is a first-class target.** CI cross-compiles for linux/arm64 and
+linux/amd64 on every change (`make cross`), and each release ships static
+binaries for both (`.goreleaser.yaml`). There is still no container image
+build; when there is, it must be multi-arch for the same reason. Building
+amd64 alongside keeps an x86 industrial PC available without a second
+pipeline.
 
 **Storage choice is the highest-leverage hardware decision.** Prefer NVMe or
 eMMC; avoid SD cards. SD is the single most common field-failure mode on
@@ -225,10 +244,11 @@ operators debug them, which some DOT network teams will resist.
 Everything ADR 0012 makes load-bearing. Small, portable, and a prerequisite for
 any unattended rollout.
 
-- Readiness signal per D1. Its meaning is about DEVICES, not the broker: a
-  collector polling happily while the local broker is briefly down is working
-  and will drain when the broker returns. Folding broker connectivity into
-  readiness would produce rollbacks for the wrong reason.
+- Readiness signal per D1. *Done — `/readyz`, `internal/manage`.* Its
+  meaning is about DEVICES, not the broker: a collector polling happily
+  while the local broker is briefly down is working and will drain when the
+  broker returns. Folding broker connectivity into readiness would produce
+  rollbacks for the wrong reason.
 - **Tolerate the broker being absent at startup.** *Done — ADR 0020;
   `publish.Start` connects in the background.* Before it, `publish.Connect`
   dialled NATS and provisioned streams during boot, so a broker that was slow
@@ -238,22 +258,30 @@ any unattended rollout.
   boundary" rather than a weakening of it: bad config still fails hard, an
   absent peer retries.
 - Expected-version config plus a drift report on the bus when the running
-  version disagrees.
+  version disagrees. *Superseded — ADR 0019 (clauses 11 and 13) has the
+  collector report what it runs, and the comparison happens at the hub.*
 - Confirm the boot event carries enough to identify a build, not just a
-  semantic version.
+  semantic version. *Done — `instance.started` and every heartbeat carry
+  `version` (the release tag, or a VCS pseudo-version for an untagged
+  build), `config_revision` and `boot_id`.*
 
 ### Phase 2 — Linux reference deployment (this repo)
 
 This ships *with* the collector: the recipe an agency can run as-is, with no
 additional tooling.
 
-- Container image and systemd unit.
+- Container image and systemd unit. *The unit is done
+  (`packaging/systemd/`), for the collector as a native binary rather than a
+  container; there is no image yet.*
 - `podman auto-update` wired to the readiness signal so revert gates on working,
-  not running.
+  not running. *Not built.*
 - Outbound leaf connection to a hub; credentials scoped per cabinet. Subject
   permissions fall out of the ADR 0011 grammar — a hub can grant
   `openits.<region>.<agency>.<unit>.>` without also exposing collector
-  internals, because health lives on its own root.
+  internals, because health lives on its own root. *ADR 0022 makes the leaf
+  link broker configuration owned by the deployment, states its
+  requirements, and documents and tests the collector's own least-privilege
+  grant.*
 - Config delivery. At 15,000 cabinets configs are *generated* from the agency's
   device inventory, not hand-authored; the collector already accepts whatever a
   generator produces.
@@ -302,8 +330,9 @@ any implementation can do it.
 - Gate on signals already on the bus: the new version published a boot event
   *and* kept its devices reachable for N minutes. Both signals exist today —
   `instance.started` and `instance.heartbeat` carry version and config
-  revision, `DeviceStatusChanged` carries
-  reachability.
+  revision, and reachability transitions go out as `comm-health-event` on
+  the catalog (or the collector-owned `device-status-changed` for kinds
+  without one).
 - Halt on cohort failure — noting Ansible already provides this, so it is not
   by itself a reason to build the plane.
 

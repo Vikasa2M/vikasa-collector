@@ -1,7 +1,7 @@
 // Package wire is the ONLY layer allowed to know wire schemas. Emitters
-// turn domain events into (payload, ce-type). One subpackage per pinned
-// openits-models release (Plan 2+); package health is the collector-owned
-// schema (ADR 0007).
+// turn domain events into (payload, ce-type). Package openits maps onto the
+// pinned openits-models release, edited in place on a pin bump (ADR 0018);
+// package health is the collector-owned schema (ADR 0007).
 package wire
 
 import "github.com/Vikasa2M/vikasa-collector/sdk/model"

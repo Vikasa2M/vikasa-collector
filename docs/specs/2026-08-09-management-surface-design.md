@@ -1,7 +1,16 @@
 # Collector management surface
 
 **Date:** 2026-08-09
-**Status:** Draft
+**Status:** Mostly implemented; kept as the design record. §1 is built
+(`internal/manage`; the operator-facing reference is
+[`configuration.md`'s management-surface section](../reference/configuration.md#the-management-surface)),
+except `sd_notify`. §2's boot record and periodic self-report are built as
+[ADR 0019](../adr/0019-collector-self-health.md)'s `instance.*` events; its
+drift report is superseded — ADR 0019 has the collector report what it runs
+and leaves the comparison with what was expected to the fleet control plane.
+§3 is deferred by design. §5 is resolved by
+[ADR 0020](../adr/0020-broker-absence-is-latency.md). The only open
+collector-side item is `sd_notify`.
 **Depends on:** ADR 0004 (pull-only), ADR 0007 (collector-owned health schema),
 ADR 0011 (namespace-rooted subjects), ADR 0012 (host-executed updates)
 **Context:** `docs/specs/2026-08-09-fleet-deployment.md`
@@ -16,9 +25,9 @@ Three directions, deliberately asymmetric:
 
 | Direction | Mechanism | Exists today |
 |---|---|---|
-| **Local** — supervisor and on-site technician | HTTP on loopback | yes, §1 (`internal/manage`), less `sd_notify` and expected-version drift |
-| **Outbound** — fleet observability | events on the bus | partly |
-| **Inbound** — desired state | config file, no control channel | n/a |
+| **Local** — supervisor and on-site technician | HTTP on loopback | yes (`internal/manage`), less `sd_notify` |
+| **Outbound** — fleet observability | events on the bus | yes (ADR 0019 `instance.*` events) |
+| **Inbound** — desired state | config file, no control channel | n/a, by design |
 
 ## 1. Local surface
 
@@ -38,7 +47,9 @@ That is not laziness, it is the whole design. If readiness could go false, and
 the supervisor restarts on unready, then a comms outage that takes every device
 offline produces a restart loop — the collector killed repeatedly for a fault
 it did not cause and cannot fix, during the exact window an operator needs it
-reporting. Ongoing device health is what `DeviceStatusChanged` is for.
+reporting. Ongoing device health is what the reachability events are for
+(`comm-health-event` on the catalog, or the collector-owned
+`device-status-changed` fallback).
 
 **Not gated on the broker.** A collector polling devices while the local broker
 is down is working; it is the broker that is broken. Folding broker
@@ -61,14 +72,18 @@ The on-site surface. A technician with a laptop should be able to answer "why
 is this cabinet quiet" without shipping logs anywhere:
 
 - collector version and build identity
-- config revision, and expected version if configured
+- config revision
 - uptime
 - per device: last successful poll, last error, consecutive failures
-- broker connected, events published, events dropped
-- emitter drop counts by reason (no ce-type, unmappable value)
+- broker connected, events queued, events published, events dropped
+- emitter drop counts by reason
 
-That last line matters: unclaimed events drop loudly to the log today, which is
+That last line matters: an unclaimed event drops loudly to the log, which is
 invisible from outside. A counter makes a mapping gap observable in the field.
+
+*As built:* all of the above, with the counters shared with the heartbeat.
+The expected-version field this list once included was dropped with the
+drift report (§2).
 
 ### Why HTTP
 
@@ -89,21 +104,21 @@ Collector-owned schema (ADR 0007), so none of this waits on an upstream
 release. All of it rides `openits-collector.*`, which ADR 0011 already put on
 its own subject root and its own stream.
 
-**Exists:** the ADR 0019 instance events — `started`, `stopping`, and a
-periodic `heartbeat` carrying identity, resource use and the cumulative
-counters — plus `DeviceStatusChanged` (reachability transitions).
+*As built* ([ADR 0019](../adr/0019-collector-self-health.md)): the
+`instance.started`, `instance.stopping`, `instance.heartbeat` and
+`instance.log` events, all carrying version and config revision, plus device
+reachability transitions. The design called for:
 
-**To add:**
-
-- **Config revision on the boot event.** Desired state is
+- **Config revision on the boot event** — built. Desired state is
   `(binary version, config revision)`; both halves must be reportable or drift
   is only half visible.
 - **A drift report** when the running version disagrees with the expected
-  version. Makes a stalled or reverted rollout visible without the plane
-  polling anything.
-- **A periodic collector self-report.** This closes a real gap: with only
+  version — **not built, by decision.** ADR 0019 (clauses 11 and 13) has the
+  collector report what it runs and leaves running-versus-expected to the
+  hub, which already knows what it asked for.
+- **A periodic collector self-report** — built as the heartbeat. With only
   transition events, a healthy quiet cabinet and a wedged-but-connected one
-  look identical, because neither emits anything. A low-frequency status event
+  look identical, because neither emits anything; a low-frequency event
   carrying version, config revision, uptime and counters distinguishes them.
   At 15,000 cabinets on a five-minute interval that is ~50 msg/sec fleet-wide,
   which is noise against the ~75,000 msg/sec of telemetry.
@@ -160,7 +175,7 @@ another.
 |---|---|---|
 | Leaf connect/disconnect | NATS `$SYS` at the hub | Is the cabinet *there*? |
 | Health events + self-report | `openits-collector.>` | Is the collector *working*? |
-| Boot event + drift | `openits-collector.>` | Is it running what we asked? |
+| Boot event + heartbeat (version, config revision) | `openits-collector.>` | Is it running what we asked? (the plane compares) |
 
 The first is not on the collector's bus at all and cannot be — absence is not
 an event. It is also what makes NATS-alongside pay off: when the collector dies
@@ -174,11 +189,10 @@ bounded in-memory queue with backoff, oldest-first drops when full, and every
 drop counted in `/status` and the ADR 0019 heartbeat. The analysis below is
 kept as the record of the options weighed.
 
-Found while working through the broker/readiness interaction, and not yet
-solved.
+Found while working through the broker/readiness interaction.
 
-`publish.Publish` retries three times over roughly 750 ms and then the event is
-**dropped**. The collector has no buffer. With NATS in its own container —
+At the time, `publish.Publish` retried three times over roughly 750 ms and
+then **dropped** the event; the collector had no buffer. With NATS in its own container —
 which D2 chose for good reasons — every broker restart, including its own
 updates, is a data-loss window.
 
@@ -202,11 +216,15 @@ abstract.
 
 ## Testing
 
-Every guard here is one that must be shown to fail, per the standing rule:
+Every guard here is one that must be shown to fail, per
+[the standing rule](../reference/invariants.md#every-guard-must-be-shown-to-fail):
 
-- Readiness stays false when config parses but no device answers.
+- Readiness stays false when config parses but no device answers —
+  `TestNotReadyWhileNoDeviceAnswers`.
 - Readiness latches: it does not go false when every device later goes
-  unreachable.
-- Readiness is unaffected by the broker being down.
-- Drift is reported when expected and running versions disagree.
-- The self-report fires on a quiet cabinet where nothing else emits.
+  unreachable — `TestReadinessLatchesAndIgnoresTheBroker`.
+- Readiness is unaffected by the broker being down — the same test.
+- The self-report fires on a quiet cabinet where nothing else emits —
+  `TestInstanceEventsReachTheBus`.
+
+(Drift reporting was dropped; see §2.)

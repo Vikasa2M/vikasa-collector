@@ -15,36 +15,61 @@ table is what to trust for exact wording, not this file.
 ## Commands
 
 ```bash
-make check              # vet + golangci-lint + tidy + race tests + boundary/docs lints — the CI gate
-make vuln               # govulncheck; CI runs it as its own, non-blocking job
+make check              # vet + golangci-lint (gofmt) + tidy + race tests + boundary/docs lints — the CI gate
+make lint-docs          # just the docs lint: relative links, #anchors, skill sections
+make vuln               # govulncheck; CI runs it as its own, non-blocking workflow
 make dev                # whole pipeline locally: embedded NATS + synthetic device
+make cross              # linux arm64/amd64 build; CI runs it after make check
 go run ./cmd/collector -config collector.yaml   # needs a real broker AND real devices
 ```
 
+## Layout
+
+- `cmd/collector` — the binary; `adapters.go` holds `RegisterAdapters`, the
+  one place adapters are registered. `cmd/dev` — the `make dev` harness.
+- `sdk/` — the stable surface adapters build on: `sdk/adapter` (the
+  `StateReader` contract, registry, strict connection-block helpers),
+  `sdk/model` (facets and domain events), `sdk/transport/snmp` (+ its
+  `snmptest` replay fake).
+- `internal/vendors/ntcip` — the only adapters today: `ntcip-asc` and
+  `ntcip-dms`.
+- `internal/synth` — one differ per facet kind. `internal/durable` keeps
+  its previous state in the JetStream KV bucket `VIKASA_SYNTH_STATE`.
+- `internal/wire/openits` — the openits-models emitter (`encode_<family>.go`
+  per service); `internal/wire/health` — the collector-owned schema
+  (described in `asyncapi.yaml`); `internal/wire/tier2` — the Tier 2
+  conformance test.
+- `internal/runner` (poll loops), `internal/publish` (NATS publisher and
+  bounded queue), `internal/subject` (subject templates),
+  `internal/cloudevents` (envelope, deterministic `ce-id`),
+  `internal/manage` (loopback `/livez`, `/readyz`, `/status`),
+  `internal/config`, `internal/app` (wires it all together).
+- `internal/docs` — tests that keep `configuration.md`, `invariants.md` and
+  `asyncapi.yaml` in step with the code.
+
 ## Layering rules
 
-The openits-models boundary is three rules, not all machine-checked — see
-[the boundary
+The openits-models boundary is three CI-enforced rules — see [the boundary
 rule](docs/reference/invariants.md#adapters-and-sdk-never-import-openits-models)
 for exact wording:
 
 - Adapters (`internal/vendors/`) and `sdk/` stay on `sdk/model` types and
-  don't reach for openits-models. CI-enforced.
+  don't reach for openits-models.
 - The dependency pin carries no `replace` directive — see [that
   rule](docs/reference/invariants.md#the-openits-models-pin-carries-no-replace-directive).
-  CI-enforced.
 - The pin names a release tag, never a `main`-HEAD pseudo-version — see
   [that
-  rule](docs/reference/invariants.md#the-openits-models-pin-names-a-release-tag).
-  CI-enforced (ADR 0018; the earlier branch-tracking policy went two
-  releases stale without anything noticing). Whether the tag is a *current*
-  one is [a separate
-  row](docs/reference/invariants.md#the-pinned-release-is-a-current-one-not-an-old-tag)
-  and is **not** CI-enforced — a lint can check the version string's shape,
-  not its recency.
-- Versioned emitter packages (`internal/wire/openits_v1`, …) have not
-  started and are no longer tied to tagged pins: they begin when a fleet
-  genuinely needs two model releases compiled into one binary.
+  rule](docs/reference/invariants.md#the-openits-models-pin-names-a-release-tag)
+  (ADR 0018).
+
+Whether the tagged release is a *current* one is [a separate
+row](docs/reference/invariants.md#the-pinned-release-is-a-current-one-not-an-old-tag)
+and is **not** CI-enforced: a lint can check the version string's shape,
+not its recency.
+
+There is one openits-models emitter package, `internal/wire/openits`, and a
+pin bump edits it in place. A second, versioned package begins only when a
+fleet genuinely needs two model releases compiled into one binary.
 
 The synth engine's iron rule concerns what a differ or adapter may do with
 a failed or absent facet read — see [absence of
@@ -86,3 +111,5 @@ differ PR must cover.
   `check` status.
 - Config is the trust boundary — see [the config
   rule](docs/reference/invariants.md#config-is-the-trust-boundary-boot-fails-on-the-unrecognized).
+- Documentation changes: run `make lint-docs`, and add any new doc to the
+  hub in `docs/README.md`.

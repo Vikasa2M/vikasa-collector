@@ -1,17 +1,17 @@
 # Map an event to the wire
 
-This is the guide for taking a domain event that already exists —
-whether it's one you just added following
-[`add-a-domain-facet.md`](add-a-domain-facet.md) or an existing one with
-no wire mapping yet — and giving it a `(ce-type, payload)` in
-`internal/wire/openits`. It does not cover adopting a new openits-models
-release (moving the pin, re-mapping everything the release touched); that
-is a separate, larger workflow with its own document.
+**At the end** a domain event that has no wire mapping yet — one you just
+added with [`add-a-domain-facet.md`](add-a-domain-facet.md), or an
+existing one — publishes as a catalog ce-type with an explicit payload, a
+`ce-dataschema`, and a byte-exact golden test.
 
-Read [`docs/explanation/wire-boundary.md`](../explanation/wire-boundary.md)
-first if you haven't. It covers why the domain model and the wire model
-are kept apart, what rides in the CloudEvents envelope, and the drop rule
-in full — this document assumes that reading and stays procedural.
+**You need** [`wire-boundary.md`](../explanation/wire-boundary.md) read: it
+covers why the domain and wire models are kept apart, what rides in the
+CloudEvents envelope, and the drop rule. The catalog must already declare
+the ce-type at the pinned openits-models release; if it doesn't, the
+collector does not invent one. Moving the pin to a newer release is a
+separate guide,
+[`adopt-an-openits-models-release.md`](adopt-an-openits-models-release.md).
 
 ## The mapping path, end to end
 
@@ -66,10 +66,8 @@ go get github.com/Vikasa2M/openits-models@<the version in go.mod>
 # then a main.go that builds the message, marshals it, and prints hex
 ```
 
-The version currently pinned is whatever `go.mod` says today — check
-there rather than assuming; it moves under
-[ADR 0010](../adr/0010-openits-models-lockstep-pre-v1.md)'s lockstep
-mechanism.
+Use the version `go.mod` pins (`grep openits-models go.mod`); it is
+always a release tag ([ADR 0018](../adr/0018-tagged-model-pins.md)).
 
 Things that have surprised people before, worth checking rather than
 assuming:
@@ -110,7 +108,8 @@ re-probes only what a later pin bump could actually have moved.
    operator-configured.
 3. **Add a case to the family encoder's type switch**
    (`internal/wire/openits/encode_<family>.go`; a new service family gets
-   its own file and a line in `payload`'s list). Build the proto message with
+   its own file and a line in the family list in `payload`, in
+   `emitter.go`). Build the proto message with
    explicit field copies. Where the domain value has no honest identity on
    the wire, return `ok=false` from the identity-lookup function and let
    the case (and therefore `Encode`) decline — see the next section.
@@ -129,9 +128,20 @@ re-probes only what a later pin bump could actually have moved.
    compares your bytes, and `TestGoldensCoverEveryCEType` (same file) fails
    the build if a ce-type reachable through `CETypes()` has no golden case
    at all.
-6. **Run `TestPrintGoldens`** (`internal/wire/openits/golden_test.go`) if
-   you need the hex to paste in rather than compute by hand — it's there
-   for exactly this step.
+6. **Generate the hex with `TestPrintGoldens`** (same file) rather than by
+   hand. It skips unless asked:
+   `PRINT_GOLDENS=1 go test ./internal/wire/openits -run TestPrintGoldens -v`.
+   Read the decoded message it prints against your fixture
+   before pasting the hex: a golden copied without checking only records
+   whatever the code happened to do.
+7. **Delete the ce-type's line from the `unmapped` allowlist** in
+   `internal/wire/openits/catalog_test.go` — see
+   [the catalog-conformance check](#the-catalog-conformance-check) below.
+8. **If the ce-type is in a service the Tier 2 harness judges**
+   (`signal-control` or `dms` today), consider adding a step that produces
+   it to the scripted device in `internal/wire/tier2/tier2_test.go` and the
+   ce-type to its `want` list, so openits-models' own conformance checks
+   run against it.
 
 Every mapping — new or existing — is a field-by-field, explicit,
 reviewable diff by design; there is no mapping DSL to configure instead of
@@ -143,11 +153,10 @@ following these steps.
 switches — it's the return value most mapping functions
 (`controllerModeIdentity`, `dmsControlModeIdentity`, `cctvControlModeIdentity`,
 `tourRunStateFor`) are built around, each with an `(identity, ok bool)`
-signature that forces the caller to check. `TestEncode_ModeChangedToStandby_IsNotClaimed`
-and `TestEncode_DMSControlUnknown_IsNotClaimed`
-(`internal/wire/openits/emitter_test.go`) are the golden proof of the
-shape: a domain value with no honest wire identity produces a declined
-event, not a payload carrying the nearest-looking enum value. The full
+signature that forces the caller to check. `TestEncode_UnrepresentableTargetIsNotClaimed`
+(`internal/wire/openits/emitter_test.go`) proves the shape: a domain value
+with no honest wire identity produces a declined event, not a payload
+carrying the nearest-looking enum value. The full
 reasoning — including the cases where a *vaguer* true statement exists and
 the emitter uses that instead of declining (`faultKindIdentity`'s
 per-service fallback) — is
@@ -170,14 +179,12 @@ fix is never to invent one (see
 
 ```bash
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-`make check` runs `go vet`, golangci-lint, the full suite under the race
-detector, and `scripts/lint-boundary.sh` — the same gate that fails the build if
-anything outside `internal/wire` reaches for an openits-models type.
-The race detector matters here because emitters are called
-concurrently, one goroutine per polled device — `TestEncode_SequenceIsSafeUnderConcurrentDevices`
-(`internal/wire/openits/emitter_test.go`) exists specifically to exercise
-that. `gofmt -l .` should print nothing.
+This is the CI gate: `go vet`, golangci-lint (gofmt included), the whole
+suite under `-race`, and the boundary lint that fails the build if anything
+outside `internal/wire` imports openits-models. The suite includes the
+goldens, the catalog-conformance tests, and the Tier 2 harness run.
+`-race` matters because emitters are called concurrently, one goroutine
+per polled device; `TestEncode_SequenceIsSafeUnderConcurrentDevices`
+(`internal/wire/openits/emitter_test.go`) exercises exactly that.

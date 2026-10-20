@@ -37,7 +37,10 @@ body:
     id: env
     attributes:
       label: Environment
-      description: Go version, OS/arch, NATS server version, and the device (vendor/model/firmware) if relevant.
+      description: >
+        Collector version (`vikasa-collector -version`, or the commit if you
+        built from source), Go version if you built it, OS/arch, NATS server
+        version, and the device (vendor/model/firmware) if relevant.
       render: shell
     validations:
       required: false

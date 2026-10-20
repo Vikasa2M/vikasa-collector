@@ -14,9 +14,10 @@ when reviewing a change under `internal/wire`.
 
 This skill covers `internal/wire/openits` — the openits-models emitter
 family. It does not cover `internal/wire/health`, the collector-owned
-health schema (ADR 0007, JSON bodies, `openits-collector.health.*`
-ce-types) — that family does not track openits-models releases and needs
-none of this during a pin bump.
+schema (ADR 0007 and ADR 0019: JSON bodies, `openits-collector.health.*` and
+`openits-collector.instance.*` ce-types, described in `asyncapi.yaml`) —
+that family does not track openits-models releases and needs none of this
+during a pin bump.
 
 ## Invariants
 
@@ -49,7 +50,7 @@ none of this during a pin bump.
    No reflection, no mapping DSL. Where the domain value has no honest
    wire identity, return `ok=false` and let the case decline rather than
    encode an approximation.
-4. Add a `dataSchemaFor` entry pointing at the defining module's own
+4. Add a `dataSchemaFor` entry (`internal/wire/openits/identities.go`) pointing at the defining module's own
    schema-registry revision — never a base or types module the payload
    happens to compose.
 5. Add a golden case to `goldenCases`
@@ -85,22 +86,17 @@ none of this during a pin bump.
 ## Verify
 
 ```bash
+go test -race ./internal/wire/...
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-Expected: `make check` and `go test ./... -race` both pass; `gofmt -l .`
-prints nothing. For a pin bump specifically, `make check`'s boundary lint
-is what catches a `replace` directive left behind from local debugging.
-
-```bash
-go test ./internal/wire/openits/... -run TestGoldens -v
-```
-
-Expected: every golden case passes. A golden that moved with no matching
-mapping edit means the module changed under you, not that the golden
-needs regenerating.
+Expected: both pass. `./internal/wire/...` covers the goldens
+(`TestGoldens`), the catalog allowlist tests, and the Tier 2 conformance
+test in `internal/wire/tier2`, which runs openits-models' own checks
+against a live collector's output. A golden that moved with no matching
+mapping edit means the module changed under you, not that the golden needs
+regenerating. For a pin bump, `make check`'s boundary lint is what catches
+a `replace` directive or untagged pin left behind from local debugging.
 
 ## Canonical doc
 

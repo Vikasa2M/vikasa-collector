@@ -8,8 +8,8 @@ import (
 // Tenant identifies the cabinet: stamped into subjects and the CE source URN.
 //
 // Region, Agency and AgencyUnit are the profile's identity triple and appear
-// in ce-source. Site is NOT in the URN — it stays because the collector still
-// uses it for stream naming and health context, but the profile's notion of
+// in ce-source. Site is not part of the triple: it is the id the collector's
+// own instance.* events carry in place of a device id. The profile's notion of
 // "where" is the triple.
 type Tenant struct {
 	Region     string
