@@ -41,6 +41,7 @@ tooling keeps them in the git-ignored `.superpowers/` directory.
 | Understand what the tests prove, and what they don't | [`explanation/testing-strategy.md`](explanation/testing-strategy.md) |
 | Understand why it's built this way | [`adr/README.md`](adr/README.md) — the decision records, in order |
 | Consume events the collector publishes | [`reference/consumer-contract.md`](reference/consumer-contract.md) — delivery, duplicates, ordering, and what a restart does to the stream |
+| Package or supervise the collector (container, unit, package, fleet agent) | [`reference/runtime-contract.md`](reference/runtime-contract.md) — what the binary needs and promises: inputs, files, network, health, signals, exit codes |
 | Configure a deployment | [`reference/configuration.md`](reference/configuration.md) — every `collector.yaml` field and command-line flag: type, default, validation |
 | Deploy a collector | [`how-to/deploy-a-collector.md`](how-to/deploy-a-collector.md) — one cabinet: install, systemd, health checks, upgrade and rollback |
 | See designs not yet built | [`specs/2026-08-09-fleet-deployment.md`](specs/2026-08-09-fleet-deployment.md) (fleet-scale rollout) and [`specs/2026-08-09-management-surface-design.md`](specs/2026-08-09-management-surface-design.md) (the management surface's design record; all but `sd_notify` is built) |

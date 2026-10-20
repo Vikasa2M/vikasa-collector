@@ -43,5 +43,6 @@ contract), [0013](0013-absence-of-evidence.md) (the synth rule), and
 | [0020](0020-broker-absence-is-latency.md) | Broker absence is latency, not loss: background connect, held synthesis, bounded publish queue | Accepted 2026-10-12; implemented 2026-10-13. Implements 0014's exception; amends 0017 |
 | [0021](0021-sdk-interfaces-ship-with-their-first-implementer.md) | SDK interfaces ship with their first implementer | Accepted 2026-10-13. Amends 0004 |
 | [0022](0022-transport-security-and-credentials.md) | Transport security and credentials: creds file not URL, plaintext only on loopback, least-privilege broker user | Accepted 2026-10-15 |
+| [0023](0023-ship-a-binary-and-a-runtime-contract.md) | Ship a binary and a runtime contract; packaging is the deployer's | Accepted 2026-10-20 |
 
 Start at the [documentation hub](../README.md) for everything that is not a decision record.

@@ -7,6 +7,13 @@ a control plane that executes updates and reverts bad ones — is designed in
 [`docs/specs/2026-08-09-fleet-deployment.md`](../specs/2026-08-09-fleet-deployment.md)
 but not built; everything here is what that plane would drive on each host.
 
+This is the project's **reference recipe**, not the only supported way to
+run the collector. The project ships a binary and a
+[runtime contract](../reference/runtime-contract.md)
+([ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md)). A
+container, an OS package or your own unit works the same way, as long as it
+honours that contract.
+
 ## What you need
 
 - **A Linux host in the cabinet**, `amd64` or `arm64` — the fleet spec's
@@ -203,5 +210,8 @@ in `/status`.
   the running version and `config_revision`, but nothing yet compares them
   with what a cabinet *should* be running.
 - **`sd_notify`** — the unit is `Type=simple`; readiness is `/readyz`.
-- **Packages and a container image** — releases ship tarballs; `.deb`/`.rpm`
-  and an image for the fleet spec's podman path are not built.
+- **Packages and a container image** — not project deliverables
+  ([ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md)). Build
+  one from the release binary against the
+  [runtime contract](../reference/runtime-contract.md) if your deployment
+  wants one.

@@ -13,7 +13,9 @@ health-gated auto-update. Still open: D3, M1 and M3.
 (CM4/CM5 on an industrial carrier) or a small x86 industrial PC. This is the
 use case being built first. IOx is deferred, NOT designed out — see "Why the
 split still earns its place" below.
-**Decision record:** ADR 0012 (host-executed updates), ADR 0011 (subject roots)
+**Decision record:** ADR 0012 (host-executed updates), ADR 0011 (subject roots),
+ADR 0023 (the project ships a binary and a runtime contract; packaging,
+including the podman choice below, is the deployer's)
 
 ## Shape
 
@@ -22,7 +24,7 @@ than a redesign:
 
 | Layer | Owns | Linux | IOx |
 |---|---|---|---|
-| **Host mechanism** | fetch, swap, restart, local revert | systemd + `podman auto-update` | *(deferred)* IOx runtime + app versioning |
+| **Host mechanism** | fetch, swap, restart, local revert | the deployment's choice, e.g. systemd + `podman auto-update` | *(deferred)* IOx runtime + app versioning |
 | **Fleet control plane** | who updates when, gating, halt | *(out of scope for this repo, which defines only its inputs)* | same |
 
 ### Why the split still earns its place with one host type
@@ -74,7 +76,12 @@ someone else's Linux — the IOx case — the plane would have had to drive the
 revert itself, needing a command path rather than just observation. Deferring
 IOx defers that fork too.
 
-Runtime remains podman + quadlet. docker compose is out (no rollback, no
+**Runtime.** Since [ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md),
+the runtime is the fleet plane's decision, not this repo's: the collector
+ships a static binary and a
+[runtime contract](../reference/runtime-contract.md), and any packaging that
+honours it works. The reasoning below is kept as input to that decision.
+For a fleet, the earlier preference was podman + quadlet. docker compose is out (no rollback, no
 gating, no cohorts). Single-node k3s stays available but is only justified if
 the box becomes a multi-workload platform; for a dedicated collector host it
 adds a second fleet to manage — k3s upgrades and certificate lifecycle across
