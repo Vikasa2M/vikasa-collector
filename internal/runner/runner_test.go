@@ -36,7 +36,7 @@ func (s *scriptedAdapter) Read(context.Context) (*model.Snapshot, error) {
 func okSnap() (*model.Snapshot, error) {
 	return &model.Snapshot{
 		DeviceID: "asc-1", SampledAt: time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC),
-		Facets: []model.Facet{model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}},
+		Facets: []model.Facet{model.SignalStatus{CabinetOutput: model.OutputNormal, ActivePlanID: 3}},
 	}, nil
 }
 func failRead() (*model.Snapshot, error)  { return nil, errors.New("timeout") }
@@ -106,9 +106,32 @@ func TestFailureThenRecoveryEmitsHealthTransitions(t *testing.T) {
 	if health[0].Reachable || health[0].ConsecutiveFailures != 1 {
 		t.Fatalf("first transition should be unreachable/1: %+v", health[0])
 	}
+	// Never answered since boot: there is no last contact to claim
+	// (ADR 0024), so the catalog emitter will decline it to the fallback.
+	if !health[0].LastContact.IsZero() {
+		t.Fatalf("loss before any contact carries LastContact %v, want zero", health[0].LastContact)
+	}
 	if !health[1].Reachable {
 		t.Fatalf("second transition should be reachable: %+v", health[1])
 	}
+}
+
+// A device that answered and then stopped reports when it last answered:
+// comm-lost's mandatory last-contact (openits-models v0.8.0, ADR 0024).
+func TestLossAfterContactCarriesLastContact(t *testing.T) {
+	before := time.Now().UTC()
+	events := collect(t, []func() (*model.Snapshot, error){okSnap, failRead}, 2)
+	for _, ev := range events {
+		h, ok := ev.(model.DeviceStatusChanged)
+		if !ok || h.Reachable {
+			continue
+		}
+		if h.LastContact.Before(before) || h.LastContact.After(h.OccurredAt) {
+			t.Fatalf("LastContact = %v, want the successful poll between %v and the loss at %v", h.LastContact, before, h.OccurredAt)
+		}
+		return
+	}
+	t.Fatalf("no unreachable transition in %d events", len(events))
 }
 
 // ADR 0019 clause 12: an adapter panic is a collector fault, not a device

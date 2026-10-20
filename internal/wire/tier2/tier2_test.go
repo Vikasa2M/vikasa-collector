@@ -10,6 +10,11 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/protobuf/proto"
+
+	commonv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/common/v1"
+	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
+	scv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/signal_control/v1"
 
 	conformance "github.com/Vikasa2M/openits-models/tools/conformance/tests"
 
@@ -45,17 +50,18 @@ func (s *scripted) Read(context.Context) (*model.Snapshot, error) {
 func ascScript() [][]model.Facet {
 	return [][]model.Facet{
 		{
-			model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 1},
+			model.SignalStatus{Mode: model.ModeCoordinated, CabinetOutput: model.OutputNormal, ActivePlanID: 1},
 			model.FaultSet{},
 			model.DetectorSamples{Samples: []model.DetectorSample{{Channel: 1, VolumeCount: 10, OccupancyTenths: 50}}},
 		},
 		{
-			model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 2, PreemptionActive: true, PreemptionSource: "rail-1"},
+			model.SignalStatus{Mode: model.ModeFree, CabinetOutput: model.OutputFlash, FlashCause: model.FlashMonitor,
+				ActivePlanID: 2, PreemptionActive: true, PreemptionSource: "rail-1"},
 			model.FaultSet{Faults: []model.Fault{{ID: "mmu-fault", Severity: model.SeverityCritical, Category: model.CategoryConflict, Description: "conflict"}}},
 			model.DetectorSamples{Samples: []model.DetectorSample{{Channel: 1, VolumeCount: 15, OccupancyTenths: 120}}},
 		},
 		{
-			model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 2},
+			model.SignalStatus{Mode: model.ModeCoordinated, CabinetOutput: model.OutputNormal, ActivePlanID: 2},
 			model.FaultSet{},
 			model.DetectorSamples{Samples: []model.DetectorSample{{Channel: 1, VolumeCount: 21, OccupancyTenths: 80}}},
 		},
@@ -97,6 +103,7 @@ func dmsScript() [][]model.Facet {
 // run, so no check can pass for want of the event it judges.
 var want = []string{
 	"openits.signal-control.mode-changed.v1",
+	"openits.signal-control.cabinet-output-changed.v1",
 	"openits.signal-control.plan-applied.v1",
 	"openits.signal-control.operational-status-report.v1",
 	"openits.signal-control.preemption-activated.v1",
@@ -123,8 +130,12 @@ var checks = map[string][]string{
 		"TestCEType_OpenitsFormat",
 		"TestCESource_URN",
 		"TestCEID_Present",
+		"TestFault_KindMatchesService",
+		"TestMode_ValueMatchesKind",
 		"TestPreemption_EventFired",
 		"TestPreemption_EventTypeShape",
+		"TestEvents_CabinetOutputChanged",
+		"TestEvents_StatusReportFlashCause",
 	},
 	"dms": {
 		"TestSubject_SevenTokenShape",
@@ -132,11 +143,34 @@ var checks = map[string][]string{
 		"TestCEType_OpenitsFormat",
 		"TestCESource_URN",
 		"TestCEID_Present",
+		"TestFault_KindMatchesService",
+		"TestMode_ValueMatchesKind",
 		"TestDMSOperational_Heartbeat",
 		"TestDMSEvent_FaultRaisedShape",
 		"TestDMSEvent_ModeChangedShape",
 		"TestDMSEvent_ActivationFailedShape",
 	},
+}
+
+// payloadFor decodes each catalog ce-type the scripts produce, so the
+// harness's payload checks see real messages.
+var payloadFor = map[string]func() proto.Message{
+	"openits.signal-control.mode-changed.v1":              func() proto.Message { return &commonv1.ModeChanged{} },
+	"openits.signal-control.cabinet-output-changed.v1":    func() proto.Message { return &scv1.CabinetOutputChanged{} },
+	"openits.signal-control.plan-applied.v1":              func() proto.Message { return &scv1.PlanApplied{} },
+	"openits.signal-control.operational-status-report.v1": func() proto.Message { return &scv1.OperationalStatusReport{} },
+	"openits.signal-control.preemption-activated.v1":      func() proto.Message { return &scv1.PreemptionActivated{} },
+	"openits.signal-control.preemption-cleared.v1":        func() proto.Message { return &scv1.PreemptionCleared{} },
+	"openits.signal-control.fault-raised.v1":              func() proto.Message { return &commonv1.FaultRaised{} },
+	"openits.signal-control.fault-cleared.v1":             func() proto.Message { return &commonv1.FaultCleared{} },
+	"openits.signal-control.detector-report.v1":           func() proto.Message { return &scv1.DetectorReport{} },
+	"openits.signal-control.comm-health-event.v1":         func() proto.Message { return &commonv1.CommHealthEvent{} },
+	"openits.dms.mode-changed.v1":                         func() proto.Message { return &commonv1.ModeChanged{} },
+	"openits.dms.message-changed.v1":                      func() proto.Message { return &dmsv1.MessageChanged{} },
+	"openits.dms.message-activation-failed.v1":            func() proto.Message { return &dmsv1.MessageActivationFailed{} },
+	"openits.dms.fault-raised.v1":                         func() proto.Message { return &commonv1.FaultRaised{} },
+	"openits.dms.fault-cleared.v1":                        func() proto.Message { return &commonv1.FaultCleared{} },
+	"openits.dms.sign-status-report.v1":                   func() proto.Message { return &dmsv1.SignStatusReport{} },
 }
 
 // serviceKind is the harness kind whose suite judges a catalog service.
@@ -183,18 +217,29 @@ func TestCollectorStreamPassesTheTier2Harness(t *testing.T) {
 		events = map[string][]conformance.EventEnvelope{} // by harness kind
 		seen   = map[string]bool{}
 		stray  []string
+		// undecodable lists catalog events the test could not decode.
+		undecodable []string
 	)
 	sub, err := nc.Subscribe("openits.>", func(m *nats.Msg) {
 		ceTime, _ := time.Parse(time.RFC3339Nano, m.Header.Get("ce-time"))
-		// Data stays nil: no check run here reads the payload, and the
-		// goldens lock its bytes. A check that starts reading it would
-		// dereference nil and fail loudly, not pass.
 		env := conformance.EventEnvelope{
 			Subject: m.Subject, CEType: m.Header.Get("ce-type"),
 			CESource: m.Header.Get("ce-source"), CEID: m.Header.Get("ce-id"), CETime: ceTime,
 		}
+		// Payload checks skip an event whose Data is not the type they
+		// expect, so a missing decoder would make them pass vacuously: an
+		// undecodable catalog event is a failure here, not a skip.
 		mu.Lock()
 		defer mu.Unlock()
+		if newMsg, ok := payloadFor[env.CEType]; ok {
+			msg := newMsg()
+			if err := proto.Unmarshal(m.Data, msg); err != nil {
+				undecodable = append(undecodable, env.CEType+": "+err.Error())
+			}
+			env.Data = msg
+		} else {
+			undecodable = append(undecodable, env.CEType+": no decoder in payloadFor")
+		}
 		seen[env.CEType] = true
 		parts := strings.Split(m.Subject, ".")
 		kind, ok := "", len(parts) == 7
@@ -243,6 +288,9 @@ func TestCollectorStreamPassesTheTier2Harness(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	if len(undecodable) > 0 {
+		t.Errorf("catalog payloads the harness checks could not see: %q", undecodable)
+	}
 	if len(stray) > 0 {
 		t.Errorf("catalog-space subjects outside the 7-token signal-control/dms shape: %q", stray)
 	}

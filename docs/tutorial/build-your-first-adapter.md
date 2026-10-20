@@ -50,7 +50,7 @@ output reads something like:
 
 ```
 ./scripts/lint-boundary.sh
-lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin v0.7.0) against openits-models
+lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin v0.8.0) against openits-models
 lint-boundary selftest: Rule A fires correctly
 lint-boundary replace-rule selftest: Rule C fires correctly
 lint-boundary tag-rule selftest: Rule D fires correctly
@@ -213,17 +213,19 @@ func (a *asc) readSignalStatus(snap *model.Snapshot, vals map[string]int64) {
 		})
 		return
 	}
-	snap.Facets = append(snap.Facets, model.SignalStatus{Mode: modeFromOperation(op)})
+	// Operation status says what the signal heads show (cabinet output), not
+	// whether the controller is coordinated, so Mode stays unknown.
+	snap.Facets = append(snap.Facets, model.SignalStatus{CabinetOutput: outputFromOperation(op)})
 }
 
-func modeFromOperation(v int64) model.ControllerMode {
+func outputFromOperation(v int64) model.CabinetOutput {
 	switch v {
 	case 2:
-		return model.ModeNormal
+		return model.OutputNormal
 	case 4:
-		return model.ModeFlash
+		return model.OutputFlash
 	default:
-		return model.ModeUnknown
+		return model.OutputUnknown
 	}
 }
 ```
@@ -467,7 +469,7 @@ func TestASCReadGolden(t *testing.T) {
 	if !ok {
 		t.Fatal("missing signal-status facet")
 	}
-	want := model.SignalStatus{Mode: model.ModeNormal}
+	want := model.SignalStatus{CabinetOutput: model.OutputNormal}
 	if got := f.(model.SignalStatus); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SignalStatus = %+v, want %+v", got, want)
 	}

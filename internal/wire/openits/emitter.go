@@ -93,11 +93,10 @@ var ceTypeFor = map[key]string{
 	{"fault-raised", "asc"}: "openits.signal-control.fault-raised.v1",
 	{"fault-raised", "dms"}: "openits.dms.fault-raised.v1",
 
-	// Both DMS mode axes share ONE ce-type. dms-mode-event-kind is documented
-	// as spanning dms-control-mode and the sign-mode display state alike, so
-	// the two are discriminated by which identity set prior/current are drawn
-	// from, not by separate ce-types.
-	{"control-mode-changed", "dms"}:  "openits.dms.mode-changed.v1",
+	// DMS mode-changed carries sign mode (display state) only: v0.8.0 bound
+	// dms-mode-event-kind to sign-mode. A control-mode change (central to
+	// local) has no ce-type until upstream moves it to control-source, so it
+	// is deliberately absent here and drops loudly (ADR 0024).
 	{"display-state-changed", "dms"}: "openits.dms.mode-changed.v1",
 
 	{"fault-cleared", "asc"}: "openits.signal-control.fault-cleared.v1",
@@ -129,6 +128,7 @@ var ceTypeFor = map[key]string{
 	{"cctv-control-mode-changed", "cctv"}: "openits.cctv.mode-changed.v1",
 	{"cctv-tour-state-changed", "cctv"}:   "openits.cctv.tour-state-changed.v1",
 
+	{"cabinet-output-changed", "asc"}:    "openits.signal-control.cabinet-output-changed.v1",
 	{"plan-changed", "asc"}:              "openits.signal-control.plan-applied.v1",
 	{"operational-status-report", "asc"}: "openits.signal-control.operational-status-report.v1",
 	{"preemption-activated", "asc"}:      "openits.signal-control.preemption-activated.v1",
@@ -221,6 +221,14 @@ func optString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// optTime is presence for an optional timestamp: zero means not known.
+func optTime(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t.UTC())
 }
 
 // severityFor maps the domain severity to the wire enum. Written as an

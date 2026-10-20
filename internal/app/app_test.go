@@ -24,8 +24,11 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
 
-// flakyASC fails its first read then succeeds — exercising both health
-// transitions and the domain path in one e2e run.
+// flakyASC answers, fails once, then answers again — exercising both
+// reachability transitions and the domain path in one e2e run. It answers
+// first so the loss has a last contact: a device that has never answered
+// goes to the collector-owned fallback instead (ADR 0024), which
+// TestNeverContactedLossFallsBackToTheCollectorRoot covers.
 type flakyASC struct {
 	mu    sync.Mutex
 	calls int
@@ -39,12 +42,12 @@ func (f *flakyASC) Read(context.Context) (*model.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	if f.calls == 1 {
+	if f.calls == 2 {
 		return nil, errors.New("simulated timeout")
 	}
 	return &model.Snapshot{
 		DeviceID: "asc-1", SampledAt: time.Now().UTC(),
-		Facets: []model.Facet{model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}},
+		Facets: []model.Facet{model.SignalStatus{CabinetOutput: model.OutputNormal, ActivePlanID: 3}},
 	}, nil
 }
 
@@ -215,8 +218,8 @@ func TestUnclaimedDomainEventIsDroppedLoudly(t *testing.T) {
 	// Only the health emitter is wired, so a domain event finds no claimant.
 	emitters := []wire.Emitter{health.NewHealthEmitter()}
 	ev := model.OperationalStatusReport{
-		Base: model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
-		Mode: model.ModeNormal, ActivePlanID: 3,
+		Base:          model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
+		CabinetOutput: model.OutputNormal, ActivePlanID: 3,
 	}
 	// pub is nil: safe, because the drop path returns before touching the
 	// publisher.
@@ -258,8 +261,8 @@ func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	ev := model.OperationalStatusReport{
-		Base: model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
-		Mode: model.ModeNormal,
+		Base:          model.Base{DeviceID: "asc-1", OccurredAt: time.Now().UTC()},
+		CabinetOutput: model.OutputNormal,
 	}
 	var counters stats.Counters
 	encodeAndEnqueue(log, nil, &counters, cloudevents.Tenant{Agency: "metro", Site: "cab-1"},
@@ -287,5 +290,73 @@ func TestEverySupportedModelVersionSelectsAnEmitter(t *testing.T) {
 	}
 	if _, err := catalogEmitter("openits/v0", "cab-1-collector", "test-epoch"); err == nil {
 		t.Error("catalogEmitter accepted a version no emitter implements")
+	}
+}
+
+// deadASC never answers.
+type deadASC struct{}
+
+func (deadASC) Descriptor() adapter.Descriptor {
+	return adapter.Descriptor{Vendor: "fixture", DeviceKind: "asc", Caps: adapter.CapState}
+}
+func (deadASC) Close() error { return nil }
+func (deadASC) Read(context.Context) (*model.Snapshot, error) {
+	return nil, errors.New("simulated timeout")
+}
+
+// A controller that has not answered since boot has no last contact, and
+// comm-lost must carry one (openits-models v0.8.0). The loss is still
+// reported, on the collector-owned device-status-changed, which makes no
+// such claim — never as a catalog comm-lost with an invented time
+// (ADR 0024).
+func TestNeverContactedLossFallsBackToTheCollectorRoot(t *testing.T) {
+	ns := startNATS(t)
+	reg := adapter.NewRegistry()
+	reg.Register(deadASC{}.Descriptor(), func(string, map[string]any) (adapter.Adapter, error) { return deadASC{}, nil })
+	cfg := &config.Config{
+		Region: "us-ga", Agency: "metro", AgencyUnit: "d01", Site: "cab-1",
+		CollectorID: "metro-cab-1-collector", ModelVersion: "openits/v1",
+		Devices: []config.Device{{ID: "asc-1", Vendor: "fixture", DeviceKind: "asc", PollInterval: 20 * time.Millisecond}},
+	}
+
+	nc, err := nats.Connect(ns.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	seen := make(chan string, 64)
+	sub, err := nc.Subscribe(">", func(m *nats.Msg) {
+		if ce := m.Header.Get("ce-type"); ce != "" {
+			seen <- ce
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sub.Unsubscribe() }()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+
+	deadline := time.After(8 * time.Second)
+	for {
+		select {
+		case ce := <-seen:
+			switch ce {
+			case "openits.signal-control.comm-health-event.v1":
+				t.Fatal("a never-contacted loss went to the catalog as comm-lost, with no last contact to carry")
+			case "openits-collector.health.device-status-changed.v1":
+				return
+			}
+		case <-deadline:
+			t.Fatal("the loss was never reported")
+		}
 	}
 }

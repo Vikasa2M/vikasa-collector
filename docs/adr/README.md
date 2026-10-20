@@ -44,5 +44,6 @@ contract), [0013](0013-absence-of-evidence.md) (the synth rule), and
 | [0021](0021-sdk-interfaces-ship-with-their-first-implementer.md) | SDK interfaces ship with their first implementer | Accepted 2026-10-13. Amends 0004 |
 | [0022](0022-transport-security-and-credentials.md) | Transport security and credentials: creds file not URL, plaintext only on loopback, least-privilege broker user | Accepted 2026-10-15 |
 | [0023](0023-ship-a-binary-and-a-runtime-contract.md) | Ship a binary and a runtime contract; packaging is the deployer's | Accepted 2026-10-20 |
+| [0024](0024-openits-models-v0.8-domain-changes.md) | Domain changes for openits-models v0.8.0: cabinet output split from coordination mode, fault first-observed, comm-lost last-contact | Accepted 2026-10-20. Amends 0013's application to the signal facet and 0019's reachability fallback |
 
 Start at the [documentation hub](../README.md) for everything that is not a decision record.

@@ -18,7 +18,7 @@ yourself:
 
 ```
 $ grep openits-models go.mod
-	github.com/Vikasa2M/openits-models v0.7.0
+	github.com/Vikasa2M/openits-models v0.8.0
 ```
 
 [ADR 0018](../adr/0018-tagged-model-pins.md) is why, and the short version is

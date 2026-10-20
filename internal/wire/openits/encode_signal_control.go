@@ -14,26 +14,44 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 	var msg proto.Message
 	switch v := ev.(type) {
 	case model.ModeChanged:
-		// `current` is a mandatory identityref. A domain mode with no
-		// controller-mode identity upstream cannot be encoded faithfully, so
-		// the event is NOT claimed and falls through to the loud-drop path —
-		// the same rule as an unknown DeviceKind. Never substitute a
-		// near-neighbour identity to make a warning go away.
+		// Coordination mode (ADR 0024). `mode` is mandatory, so a move to an
+		// unknown mode is not claimed; the differ does not emit one anyway.
+		// `previous-mode` is optional, so an unknown From is simply absent.
 		current, ok := controllerModeIdentity(v.To)
 		if !ok {
 			return nil, false
 		}
-		// `prior` is optional ("absent when the device just started up"), so an
-		// unmappable From is left empty rather than blocking the event.
 		prior, _ := controllerModeIdentity(v.From)
 		msg = e.modeChanged(v.Base, scTypes+"sc-mode-event-kind", prior, current)
+
+	case model.CabinetOutputChanged:
+		to, ok := cabinetOutputFor(v.To)
+		if !ok {
+			return nil, false
+		}
+		co := &scv1.CabinetOutputChanged{
+			Kind:           scTypes + "sc-cabinet-output-changed",
+			SourceDeviceId: v.DeviceID,
+			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
+			Sequence:       e.nextSequence(v.DeviceID),
+			CabinetOutput:  to,
+		}
+		if from, ok := cabinetOutputFor(v.From); ok {
+			co.PreviousCabinetOutput = from.Enum()
+		}
+		if cause, ok := flashCauseIdentity(v.Cause); ok && v.To == model.OutputFlash {
+			co.FlashCause = proto.String(cause)
+		}
+		msg = co
 
 	case model.PlanChanged:
 		// PlanApplied names only the plan now in force. FromPlanID is DROPPED:
 		// there is no wire field for it, and the transition is recoverable from
 		// consecutive events. Recorded here as the map-or-drop decision it is.
 		msg = &scv1.PlanApplied{
-			Kind:           scTypes + "sc-coordination-event-kind",
+			Kind:           scTypes + "sc-plan-applied",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
 			ObservedBy:     proto.String(e.collectorID),
@@ -43,24 +61,31 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 		}
 
 	case model.OperationalStatusReport:
-		// Same decline rule as ModeChanged: `mode` asserts a specific state, so
-		// a mode with no upstream identity cannot be reported honestly.
-		mode, ok := controllerModeIdentity(v.Mode)
-		if !ok {
-			return nil, false
-		}
-		// ActivePlanID is DROPPED: the wire OperationalStatusReport has no plan
-		// field. It is not lost to consumers — plan-applied carries it.
-		msg = &scv1.OperationalStatusReport{
-			Kind:           scTypes + "sc-mode-event-kind",
+		// Rebuilt on the shared status summary in openits-models v0.8.0. The
+		// report carries what the domain knows; oper-status, monitor status,
+		// control source, uptime and the -since times are left absent until
+		// an adapter reads them, rather than guessed (ADR 0024).
+		// ActivePlanID is DROPPED: the report has no plan leaf, and
+		// plan-applied carries it.
+		r := &scv1.OperationalStatusReport{
+			Kind:           scTypes + "sc-operational-status-report",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
 			ObservedBy:     proto.String(e.collectorID),
 			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			Mode:           proto.String(mode),
-			FlashActive:    proto.Bool(v.InConflictFlash),
+			PreemptActive:  proto.Bool(v.PreemptionActive),
 		}
+		if mode, ok := controllerModeIdentity(v.Mode); ok {
+			r.Mode = proto.String(mode)
+		}
+		if out, ok := cabinetOutputFor(v.CabinetOutput); ok {
+			r.CabinetOutput = out.Enum()
+		}
+		if cause, ok := flashCauseIdentity(v.FlashCause); ok && v.CabinetOutput == model.OutputFlash {
+			r.FlashCause = proto.String(cause)
+		}
+		msg = r
 
 	case model.PreemptionActivated:
 		// preempt_number and type have no domain source yet; left unset rather
@@ -96,7 +121,7 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 			})
 		}
 		msg = &scv1.DetectorReport{
-			Kind:           scTypes + "sc-detector-event-kind",
+			Kind:           scTypes + "sc-detector-report",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
 			ObservedBy:     proto.String(e.collectorID),

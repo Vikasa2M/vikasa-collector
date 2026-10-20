@@ -14,17 +14,17 @@ import (
 func TestApplyIgnoresAFacetItsSnapshotReportsFailed(t *testing.T) {
 	t.Parallel()
 	e := NewEngine(NewSignalDiffer())
-	e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}))
+	e.Apply(snapAt(t0, model.SignalStatus{CabinetOutput: model.OutputNormal, ActivePlanID: 3}))
 
-	contradictory := snapAt(t0.Add(time.Second), model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 3})
+	contradictory := snapAt(t0.Add(time.Second), model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 3})
 	contradictory.Errors = []model.FacetError{{Kind: model.KindSignalStatus, Err: "partial read"}}
 	if evs := e.Apply(contradictory); len(evs) != 0 {
 		t.Fatalf("a facet reported as failed was diffed: %v", kinds(evs))
 	}
 
 	// prev survived: the next good poll diffs against normal, not flash.
-	evs := e.Apply(snapAt(t0.Add(2*time.Second), model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 3}))
-	if got := kinds(evs); len(got) != 2 || got[1] != "mode-changed" {
+	evs := e.Apply(snapAt(t0.Add(2*time.Second), model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 3}))
+	if got := kinds(evs); len(got) != 2 || got[1] != "cabinet-output-changed" {
 		t.Fatalf("recovery events = %v, want the normal→flash transition", got)
 	}
 }
@@ -45,7 +45,7 @@ func TestApplyRejectsAWrongTypedFacet(t *testing.T) {
 		facet model.Facet
 		want  string
 	}{
-		{"pointer to the right type", &model.SignalStatus{Mode: model.ModeFlash}, "*model.SignalStatus"},
+		{"pointer to the right type", &model.SignalStatus{CabinetOutput: model.OutputFlash}, "*model.SignalStatus"},
 		{"foreign type, same kind", foreignSignal{}, "synth.foreignSignal"},
 	}
 	for _, tc := range cases {
@@ -54,7 +54,7 @@ func TestApplyRejectsAWrongTypedFacet(t *testing.T) {
 			e := NewEngine(NewSignalDiffer()).WithRejectHook(func(deviceID string, k model.Kind, got string) {
 				rejected = append(rejected, deviceID+"|"+string(k)+"|"+got)
 			})
-			e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeNormal}))
+			e.Apply(snapAt(t0, model.SignalStatus{CabinetOutput: model.OutputNormal}))
 
 			bad := &model.Snapshot{DeviceID: "asc-1", SampledAt: t0.Add(time.Second), Facets: []model.Facet{tc.facet}}
 			if evs := e.Apply(bad); len(evs) != 0 {
@@ -65,8 +65,8 @@ func TestApplyRejectsAWrongTypedFacet(t *testing.T) {
 			}
 
 			// prev was not replaced by the bad facet.
-			evs := e.Apply(snapAt(t0.Add(2*time.Second), model.SignalStatus{Mode: model.ModeFlash}))
-			if got := kinds(evs); len(got) != 2 || got[1] != "mode-changed" {
+			evs := e.Apply(snapAt(t0.Add(2*time.Second), model.SignalStatus{CabinetOutput: model.OutputFlash}))
+			if got := kinds(evs); len(got) != 2 || got[1] != "cabinet-output-changed" {
 				t.Fatalf("next good poll = %v, want normal→flash against the pre-rejection state", got)
 			}
 		})

@@ -46,7 +46,7 @@ today; `grep -n 'Kind = "' sdk/model/*.go` lists them.
 
 | Kind constant | Facet type | What it holds |
 |---|---|---|
-| `KindSignalStatus` | `SignalStatus` | signal-controller mode, conflict flash, active plan, preemption |
+| `KindSignalStatus` | `SignalStatus` | coordination mode, cabinet output and flash cause, active plan, preemption |
 | `KindFaultSet` | `FaultSet` | every fault currently raised on the device |
 | `KindDetectorSamples` | `DetectorSamples` | per-channel vehicle detector counts, one sample per answering channel |
 | `KindDMSStatus` | `DMSStatus` | a dynamic message sign's control mode, display state, and face message |

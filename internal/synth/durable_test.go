@@ -37,12 +37,12 @@ func TestHeldEngineEmitsNothingUntilSeeded(t *testing.T) {
 func TestTransitionAcrossARestartIsEmittedOnce(t *testing.T) {
 	t.Parallel()
 	e := NewEngine(NewSignalDiffer()).HoldUntilSeeded()
-	e.Seed("asc-1", []model.Facet{model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}})
-	evs := e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 3}))
-	if got := kinds(evs); len(got) != 2 || got[1] != "mode-changed" {
+	e.Seed("asc-1", []model.Facet{model.SignalStatus{CabinetOutput: model.OutputNormal, ActivePlanID: 3}})
+	evs := e.Apply(snapAt(t0, model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 3}))
+	if got := kinds(evs); len(got) != 2 || got[1] != "cabinet-output-changed" {
 		t.Fatalf("events = %v, want the normal→flash transition", got)
 	}
-	if evs := e.Apply(snapAt(t0.Add(time.Second), model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 3})); len(kinds(evs)) != 1 {
+	if evs := e.Apply(snapAt(t0.Add(time.Second), model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 3})); len(kinds(evs)) != 1 {
 		t.Fatalf("second poll re-emitted the transition: %v", kinds(evs))
 	}
 }
@@ -68,7 +68,7 @@ func TestChangeHookReportsDurableKindsOnly(t *testing.T) {
 		got = append(got, k)
 	})
 	e.Apply(&model.Snapshot{DeviceID: "asc-1", SampledAt: t0, Facets: []model.Facet{
-		model.SignalStatus{Mode: model.ModeNormal},
+		model.SignalStatus{CabinetOutput: model.OutputNormal},
 		model.DetectorSamples{Samples: []model.DetectorSample{{Channel: 1, VolumeCount: 5}}},
 	}})
 	if len(got) != 1 || got[0] != model.KindSignalStatus {
@@ -83,7 +83,7 @@ func TestDecodeFacetRoundTripsEveryDurableKind(t *testing.T) {
 	e := NewEngine(NewSignalDiffer(), NewFaultDiffer(), NewDMSDiffer(), NewDMSEnvironmentDiffer(),
 		NewTrafficIntervalDiffer(), NewZoneIncidentDiffer(), NewZoneIntervalDiffer(), NewCCTVDiffer())
 	facets := []model.Facet{
-		model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 7, PreemptionActive: true, PreemptionSource: "rail"},
+		model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 7, PreemptionActive: true, PreemptionSource: "rail"},
 		model.FaultSet{Faults: []model.Fault{mmu, door}},
 		model.DMSStatus{ControlMode: model.ControlLocal, ActiveSlot: 4, MessageText: "[jl3]SLOW"},
 		model.DMSEnvironment{HumidityReported: true},

@@ -144,3 +144,70 @@ func TestFailedFaultReadNeverClears(t *testing.T) {
 		t.Fatalf("post-recovery events = %v, want none", kinds(evs))
 	}
 }
+
+// first-observed is mandatory on fault-raised and fault-cleared (openits-models
+// v0.8.0). NTCIP alarms carry no time, so the engine remembers when it first
+// saw each fault and carries that forward — to the clear, and across a
+// restart in the stored facet (ADR 0024).
+func TestFaultFirstObservedIsStampedCarriedAndCleared(t *testing.T) {
+	t.Parallel()
+	e := NewEngine(NewFaultDiffer())
+	t1, t2, t3 := t0.Add(time.Minute), t0.Add(2*time.Minute), t0.Add(3*time.Minute)
+
+	raised := e.Apply(faultSnap(t1, mmu))[0].(model.FaultRaised)
+	if !raised.FirstObserved.Equal(t1) {
+		t.Fatalf("raise first-observed = %v, want the first poll that saw it (%v)", raised.FirstObserved, t1)
+	}
+	if evs := e.Apply(faultSnap(t2, mmu)); len(evs) != 0 {
+		t.Fatalf("still raised: events = %v, want none", kinds(evs))
+	}
+	cleared := e.Apply(faultSnap(t3))[0].(model.FaultCleared)
+	if !cleared.FirstObserved.Equal(t1) {
+		t.Fatalf("clear first-observed = %v, want when the fault began (%v), not when it ended", cleared.FirstObserved, t1)
+	}
+}
+
+// A device that reports its own fault time is the better witness: the
+// engine never overwrites it.
+func TestFaultFirstObservedKeepsTheDevicesOwnTime(t *testing.T) {
+	t.Parallel()
+	e := NewEngine(NewFaultDiffer())
+	deviceTime := t0.Add(-time.Hour)
+	f := mmu
+	f.FirstObserved = deviceTime
+	raised := e.Apply(faultSnap(t0, f))[0].(model.FaultRaised)
+	if !raised.FirstObserved.Equal(deviceTime) {
+		t.Fatalf("first-observed = %v, want the device's %v", raised.FirstObserved, deviceTime)
+	}
+}
+
+// After a restart the engine is seeded from the stored facet, so a fault
+// standing across it clears with its original start, not the restart time.
+func TestFaultFirstObservedSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	before := NewEngine(NewFaultDiffer())
+	var stored model.Facet
+	before.WithChangeHook(func(_ string, _ model.Kind, f model.Facet) { stored = f })
+	before.Apply(faultSnap(t0, mmu))
+
+	after := NewEngine(NewFaultDiffer())
+	after.HoldUntilSeeded()
+	after.Seed("asc-1", []model.Facet{stored})
+	cleared := after.Apply(faultSnap(t0.Add(time.Hour)))[0].(model.FaultCleared)
+	if !cleared.FirstObserved.Equal(t0) {
+		t.Fatalf("clear after restart first-observed = %v, want %v", cleared.FirstObserved, t0)
+	}
+}
+
+// A clear names the same fault class as its raise: the differ carries the
+// cleared fault's category from the remembered state, so the wire kind of
+// both halves is the service's specific fault identity.
+func TestFaultClearCarriesTheCategoryOfItsRaise(t *testing.T) {
+	t.Parallel()
+	e := NewEngine(NewFaultDiffer())
+	e.Apply(faultSnap(t0, lampOut))
+	cleared := e.Apply(faultSnap(t0.Add(time.Second)))[0].(model.FaultCleared)
+	if cleared.Category != model.CategoryLamp {
+		t.Fatalf("clear category = %v, want the raise's %v", cleared.Category, model.CategoryLamp)
+	}
+}

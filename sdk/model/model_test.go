@@ -10,7 +10,7 @@ func TestSnapshotFacetLookup(t *testing.T) {
 	s := &Snapshot{
 		DeviceID:  "asc-1",
 		SampledAt: time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
-		Facets:    []Facet{SignalStatus{Mode: ModeNormal, ActivePlanID: 3}},
+		Facets:    []Facet{SignalStatus{CabinetOutput: OutputNormal, ActivePlanID: 3}},
 		Errors:    []FacetError{{Kind: Kind("detector-samples"), Err: "timeout"}},
 	}
 
@@ -35,12 +35,31 @@ func TestSnapshotFacetLookup(t *testing.T) {
 func TestControllerModeString(t *testing.T) {
 	t.Parallel()
 	cases := map[ControllerMode]string{
-		ModeUnknown: "unknown", ModeNormal: "normal", ModeFlash: "flash",
-		ModeStandby: "standby", ModeOff: "off", ControllerMode(99): "unknown",
+		ModeUnknown: "unknown", ModeCoordinated: "coordinated", ModeFree: "free", ControllerMode(99): "unknown",
 	}
 	for mode, want := range cases {
 		if got := mode.String(); got != want {
 			t.Errorf("%d.String() = %q, want %q", mode, got, want)
+		}
+	}
+}
+
+func TestCabinetOutputAndFlashCauseString(t *testing.T) {
+	t.Parallel()
+	for o, want := range map[CabinetOutput]string{
+		OutputUnknown: "unknown", OutputNormal: "normal", OutputFlash: "flash", OutputDark: "dark", CabinetOutput(99): "unknown",
+	} {
+		if got := o.String(); got != want {
+			t.Errorf("CabinetOutput(%d).String() = %q, want %q", o, got, want)
+		}
+	}
+	for c, want := range map[FlashCause]string{
+		FlashCauseUnknown: "unknown", FlashMonitor: "monitor", FlashControllerFault: "controller-fault",
+		FlashAutomatic: "automatic", FlashManual: "manual", FlashStartup: "startup",
+		FlashPreempt: "preempt", FlashScheduled: "scheduled", FlashOther: "other", FlashCause(99): "unknown",
+	} {
+		if got := c.String(); got != want {
+			t.Errorf("FlashCause(%d).String() = %q, want %q", c, got, want)
 		}
 	}
 }

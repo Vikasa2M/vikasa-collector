@@ -53,8 +53,8 @@ func TestEncode_ModeChangedOnASC_ClaimsSignalControlCEType(t *testing.T) {
 
 	enc, ok, err := em.Encode(model.ModeChanged{
 		Base: base("asc-main-and-5th", "asc"),
-		From: model.ModeFlash,
-		To:   model.ModeNormal,
+		From: model.ModeFree,
+		To:   model.ModeCoordinated,
 	})
 
 	if err != nil {
@@ -69,20 +69,18 @@ func TestEncode_ModeChangedOnASC_ClaimsSignalControlCEType(t *testing.T) {
 }
 
 func TestEncode_ModeChangedOnASC_MapsControllerModeIdentities(t *testing.T) {
-	// ModeNormal maps to mode-FREE, not mode-normal: upstream collapsed
-	// "normal" into "free" because NTCIP and signal technicians treat
-	// uncoordinated-actuated operation as one mode. A `mode-normal` identity
-	// does exist, but it belongs to openits-dms-types and means something else.
+	// Coordination mode only (openits-models v0.8.0, ADR 0024): flash and dark
+	// are cabinet output, reported by cabinet-output-changed instead.
 	got := decodeModeChanged(t, model.ModeChanged{
 		Base: base("asc-main-and-5th", "asc"),
-		From: model.ModeFlash,
-		To:   model.ModeNormal,
+		From: model.ModeFree,
+		To:   model.ModeCoordinated,
 	}, "cabinet-poller-1")
 
-	if want := "openits-signal-control-types:mode-flash"; got.GetPreviousMode() != want {
+	if want := "openits-signal-control-types:mode-free"; got.GetPreviousMode() != want {
 		t.Errorf("prior = %q, want %q", got.GetPreviousMode(), want)
 	}
-	if want := "openits-signal-control-types:mode-free"; got.GetMode() != want {
+	if want := "openits-signal-control-types:mode-coordinated"; got.GetMode() != want {
 		t.Errorf("current = %q, want %q", got.GetMode(), want)
 	}
 }
@@ -94,11 +92,11 @@ func TestEncode_UnrepresentableTargetIsNotClaimed(t *testing.T) {
 		name string
 		ev   model.Event
 	}{
-		// ModeStandby has no controller-mode identity upstream (the set is
+		// An unknown coordination mode has no honest identity to move to (the set is
 		// coordinated/free/flash/preempt/priority/manual/off); encoding it
 		// would mean inventing a near-neighbour.
 		{"asc mode standby", model.ModeChanged{
-			Base: base("asc-main-and-5th", "asc"), From: model.ModeNormal, To: model.ModeStandby,
+			Base: base("asc-main-and-5th", "asc"), From: model.ModeFree, To: model.ModeUnknown,
 		}},
 		// dms-control-mode has no "unknown" member. dms-control-other means
 		// "a vendor-specific mode not covered above", which is NOT the same
@@ -136,14 +134,14 @@ func TestEncode_ModeChangedFromUnmappable_StillClaimedWithPriorAbsent(t *testing
 	// otherwise-encodable transition.
 	got := decodeModeChanged(t, model.ModeChanged{
 		Base: base("asc-main-and-5th", "asc"),
-		From: model.ModeStandby,
-		To:   model.ModeFlash,
+		From: model.ModeUnknown,
+		To:   model.ModeCoordinated,
 	}, "cabinet-poller-1")
 
-	if got.GetPreviousMode() != "" {
-		t.Errorf("prior = %q, want empty for an unmappable From", got.GetPreviousMode())
+	if got.PreviousMode != nil {
+		t.Errorf("prior = %q, want absent for an unknown From", got.GetPreviousMode())
 	}
-	if want := "openits-signal-control-types:mode-flash"; got.GetMode() != want {
+	if want := "openits-signal-control-types:mode-coordinated"; got.GetMode() != want {
 		t.Errorf("current = %q, want %q", got.GetMode(), want)
 	}
 }
@@ -157,8 +155,8 @@ func TestEncode_PopulatesMandatoryEventHeader(t *testing.T) {
 	// for, so occurred-at is the observer's clock.
 	got := decodeModeChanged(t, model.ModeChanged{
 		Base: base("asc-main-and-5th", "asc"),
-		From: model.ModeFlash,
-		To:   model.ModeNormal,
+		From: model.ModeFree,
+		To:   model.ModeCoordinated,
 	}, "cabinet-poller-1")
 
 	if want := "asc-main-and-5th"; got.GetSourceDeviceId() != want {
@@ -184,7 +182,7 @@ func TestEncode_SequenceIncrementsPerDeviceIndependently(t *testing.T) {
 	seq := func(deviceID string) uint64 {
 		t.Helper()
 		enc, ok, err := em.Encode(model.ModeChanged{
-			Base: base(deviceID, "asc"), From: model.ModeFlash, To: model.ModeNormal,
+			Base: base(deviceID, "asc"), From: model.ModeFree, To: model.ModeCoordinated,
 		})
 		if err != nil || !ok {
 			t.Fatalf("Encode(%s) ok=%v err=%v", deviceID, ok, err)
@@ -228,7 +226,7 @@ func TestEncode_SequenceIsSafeUnderConcurrentDevices(t *testing.T) {
 			id := fmt.Sprintf("asc-%d", d)
 			for range perDevice {
 				enc, ok, err := em.Encode(model.ModeChanged{
-					Base: base(id, "asc"), From: model.ModeFlash, To: model.ModeNormal,
+					Base: base(id, "asc"), From: model.ModeFree, To: model.ModeCoordinated,
 				})
 				if err != nil || !ok {
 					t.Errorf("Encode(%s): ok=%v err=%v", id, ok, err)
@@ -336,41 +334,32 @@ func decodeDMSMode(t *testing.T, ev model.Event) (*commonv1.ModeChanged, string)
 	return &got, enc.CEType
 }
 
-func TestEncode_BothDMSModeAxes_ShareOneCEType(t *testing.T) {
-	// dms-mode-event-kind is documented as spanning BOTH dms-control-mode
-	// (who is driving) and the sign-mode display state (off/blank/test/normal).
-	// So control-mode and display-state changes are two axes of one ce-type,
-	// discriminated by which identity set prior/current are drawn from — not
-	// two ce-types, and not one of them dropped.
-	ctrl, ctrlType := decodeDMSMode(t, model.DMSControlModeChanged{
-		Base: base("dms-i35-mm214", "dms"),
-		From: model.ControlCentral,
-		To:   model.ControlLocal,
-	})
+// openits-models v0.8.0 binds DMS mode-changed to sign mode, so only the
+// display axis rides it. A control-mode change has no ce-type until upstream
+// moves it to control-source: declined, so it drops loudly (ADR 0024).
+func TestEncode_DMSModeChangedCarriesDisplayStateOnly(t *testing.T) {
 	disp, dispType := decodeDMSMode(t, model.DMSDisplayStateChanged{
 		Base: base("dms-i35-mm214", "dms"),
 		From: model.DisplayNormal,
 		To:   model.DisplayBlank,
 	})
-
-	const want = "openits.dms.mode-changed.v1"
-	if ctrlType != want || dispType != want {
-		t.Errorf("ce-types = %q / %q, want both %q", ctrlType, dispType, want)
+	if want := "openits.dms.mode-changed.v1"; dispType != want {
+		t.Errorf("display ce-type = %q, want %q", dispType, want)
 	}
-	if w := "openits-dms-types:dms-mode-event-kind"; ctrl.GetKind() != w || disp.GetKind() != w {
-		t.Errorf("kind = %q / %q, want both %q", ctrl.GetKind(), disp.GetKind(), w)
-	}
-	if w := "openits-dms-types:dms-control-local"; ctrl.GetMode() != w {
-		t.Errorf("control current = %q, want %q", ctrl.GetMode(), w)
-	}
-	if w := "openits-dms-types:dms-control-central"; ctrl.GetPreviousMode() != w {
-		t.Errorf("control prior = %q, want %q", ctrl.GetPreviousMode(), w)
+	if w := "openits-dms-types:dms-mode-event-kind"; disp.GetKind() != w {
+		t.Errorf("kind = %q, want %q", disp.GetKind(), w)
 	}
 	if w := "openits-dms-types:mode-blank"; disp.GetMode() != w {
 		t.Errorf("display current = %q, want %q", disp.GetMode(), w)
 	}
 	if w := "openits-dms-types:mode-normal"; disp.GetPreviousMode() != w {
 		t.Errorf("display prior = %q, want %q", disp.GetPreviousMode(), w)
+	}
+
+	if _, ok, _ := New("x", testEpoch).Encode(model.DMSControlModeChanged{
+		Base: base("dms-i35-mm214", "dms"), From: model.ControlCentral, To: model.ControlLocal,
+	}); ok {
+		t.Error("a DMS control-mode change was claimed; v0.8.0 has no ce-type for it")
 	}
 }
 
@@ -437,21 +426,95 @@ func TestEncode_PlanChanged_MapsToPlanApplied(t *testing.T) {
 	}
 }
 
-func TestEncode_OperationalStatusReport_MapsModeAndFlash(t *testing.T) {
+func TestEncode_OperationalStatusReport_CarriesWhatTheDomainKnows(t *testing.T) {
 	var got scv1.OperationalStatusReport
 	ceType := encodeOK(t, model.OperationalStatusReport{
-		Base: base("asc-1", "asc"), Mode: model.ModeFlash,
-		InConflictFlash: true, ActivePlanID: 3,
+		Base: base("asc-1", "asc"), CabinetOutput: model.OutputFlash,
+		FlashCause: model.FlashMonitor, PreemptionActive: true, ActivePlanID: 3,
 	}, &got)
 
 	if want := "openits.signal-control.operational-status-report.v1"; ceType != want {
 		t.Errorf("ce-type = %q, want %q", ceType, want)
 	}
-	if want := "openits-signal-control-types:mode-flash"; got.GetMode() != want {
-		t.Errorf("mode = %q, want %q", got.GetMode(), want)
+	if want := "openits-signal-control-types:sc-operational-status-report"; got.GetKind() != want {
+		t.Errorf("kind = %q, want %q", got.GetKind(), want)
 	}
-	if !got.GetFlashActive() {
-		t.Error("flash_active = false, want true")
+	if got.GetCabinetOutput() != scv1.CabinetOutput_CABINET_OUTPUT_FLASH {
+		t.Errorf("cabinet_output = %v, want FLASH", got.GetCabinetOutput())
+	}
+	if want := "openits-signal-control-types:flash-monitor"; got.GetFlashCause() != want {
+		t.Errorf("flash_cause = %q, want %q", got.GetFlashCause(), want)
+	}
+	if !got.GetPreemptActive() {
+		t.Error("preempt_active = false, want true")
+	}
+	// Coordination was not read, so mode is absent rather than mode-unknown;
+	// what no adapter reads (oper-status, monitor, uptime) is absent too.
+	if got.Mode != nil || got.OperStatus != nil || got.MonitorStatus != nil || got.UptimeS != nil {
+		t.Errorf("unread leaves present: mode=%v oper=%v monitor=%v uptime=%v", got.Mode, got.OperStatus, got.MonitorStatus, got.UptimeS)
+	}
+}
+
+func TestEncode_CabinetOutputChanged(t *testing.T) {
+	var got scv1.CabinetOutputChanged
+	ceType := encodeOK(t, model.CabinetOutputChanged{
+		Base: base("asc-1", "asc"), From: model.OutputNormal, To: model.OutputFlash, Cause: model.FlashMonitor,
+	}, &got)
+	if want := "openits.signal-control.cabinet-output-changed.v1"; ceType != want {
+		t.Errorf("ce-type = %q, want %q", ceType, want)
+	}
+	if want := "openits-signal-control-types:sc-cabinet-output-changed"; got.GetKind() != want {
+		t.Errorf("kind = %q, want %q", got.GetKind(), want)
+	}
+	if got.GetPreviousCabinetOutput() != scv1.CabinetOutput_CABINET_OUTPUT_NORMAL || got.GetCabinetOutput() != scv1.CabinetOutput_CABINET_OUTPUT_FLASH {
+		t.Errorf("output = %v → %v, want NORMAL → FLASH", got.GetPreviousCabinetOutput(), got.GetCabinetOutput())
+	}
+	if want := "openits-signal-control-types:flash-monitor"; got.GetFlashCause() != want {
+		t.Errorf("flash_cause = %q, want %q", got.GetFlashCause(), want)
+	}
+
+	// From unknown: previous is absent, not UNKNOWN.
+	var fromUnknown scv1.CabinetOutputChanged
+	encodeOK(t, model.CabinetOutputChanged{Base: base("asc-1", "asc"), To: model.OutputNormal}, &fromUnknown)
+	if fromUnknown.PreviousCabinetOutput != nil || fromUnknown.FlashCause != nil {
+		t.Errorf("from unknown: previous=%v cause=%v, want both absent", fromUnknown.PreviousCabinetOutput, fromUnknown.FlashCause)
+	}
+	// To unknown is never claimed (the differ does not emit it; ADR 0024).
+	if _, ok, _ := New("x", testEpoch).Encode(model.CabinetOutputChanged{Base: base("asc-1", "asc"), From: model.OutputFlash}); ok {
+		t.Error("a transition to unknown cabinet output was claimed")
+	}
+}
+
+// comm-lost must carry last-contact (openits-models v0.8.0). With one it goes
+// to the catalog; without one (never answered since boot) the catalog
+// emitter declines it so the collector-owned fallback reports the loss
+// without inventing a time (ADR 0024).
+func TestEncode_CommLostNeedsALastContact(t *testing.T) {
+	contact := time.Date(2026, 7, 22, 11, 59, 0, 0, time.UTC)
+	var got commonv1.CommHealthEvent
+	encodeOK(t, model.DeviceStatusChanged{Base: base("asc-1", "asc"), LastContact: contact}, &got)
+	if !got.GetLastContact().AsTime().Equal(contact) {
+		t.Errorf("last_contact = %v, want %v", got.GetLastContact().AsTime(), contact)
+	}
+	if _, ok, _ := New("x", testEpoch).Encode(model.DeviceStatusChanged{Base: base("asc-1", "asc")}); ok {
+		t.Error("comm-lost with no last contact was claimed; it must fall back to the collector-owned event")
+	}
+	var restored commonv1.CommHealthEvent
+	encodeOK(t, model.DeviceStatusChanged{Base: base("asc-1", "asc"), Reachable: true}, &restored)
+	if restored.LastContact != nil {
+		t.Error("comm-restored carried last_contact; it is defined only for comm-lost")
+	}
+}
+
+func TestEncode_FaultsCarryFirstObserved(t *testing.T) {
+	began := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	var raised commonv1.FaultRaised
+	encodeOK(t, model.FaultRaised{Base: base("asc-1", "asc"), FaultID: "mmu-fault", Severity: model.SeverityCritical,
+		Category: model.CategoryConflict, FirstObserved: began}, &raised)
+	var cleared commonv1.FaultCleared
+	encodeOK(t, model.FaultCleared{Base: base("asc-1", "asc"), FaultID: "mmu-fault", FirstObserved: began}, &cleared)
+	if !raised.GetFirstObserved().AsTime().Equal(began) || !cleared.GetFirstObserved().AsTime().Equal(began) {
+		t.Errorf("first_observed = %v / %v, want %v on both", raised.GetFirstObserved().AsTime(), cleared.GetFirstObserved().AsTime(), began)
 	}
 }
 
@@ -557,6 +620,7 @@ func TestCETypes_IsCompleteSortedAndDeduped(t *testing.T) {
 		"openits.perception.zone-incident-detected.v1",
 		"openits.perception.zone-incident-updated.v1",
 		"openits.perception.zone-interval-report.v1",
+		"openits.signal-control.cabinet-output-changed.v1",
 		"openits.signal-control.comm-health-event.v1",
 		"openits.signal-control.detector-report.v1",
 		"openits.signal-control.fault-cleared.v1",
@@ -613,32 +677,32 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 		want string
 	}{{
 		"asc mode-changed is defined by common-mode-events",
-		model.ModeChanged{Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeNormal},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-07-21/",
+		model.ModeChanged{Base: base("asc-1", "asc"), From: model.ModeFree, To: model.ModeCoordinated},
+		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
 	}, {
 		"dms mode-changed shares that same defining module",
 		model.DMSDisplayStateChanged{Base: base("dms-1", "dms"), From: model.DisplayNormal, To: model.DisplayBlank},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-07-21/",
+		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
 	}, {
 		"fault-raised is defined by common-fault-events",
 		model.FaultRaised{Base: base("asc-1", "asc"), FaultID: "f1"},
-		"https://schemas.open-its.org/openits-common-fault-events/2026-07-21/",
+		"https://schemas.open-its.org/openits-common-fault-events/2026-10-14/",
 	}, {
 		"plan-applied is defined by signal-control-events",
 		model.PlanChanged{Base: base("asc-1", "asc"), ToPlanID: 1},
-		"https://schemas.open-its.org/openits-signal-control-events/2026-07-21/",
+		"https://schemas.open-its.org/openits-signal-control-events/2026-10-17/",
 	}, {
 		"message-activation-failed is defined by dms-events, at its own revision",
 		model.DMSMessageActivationFailed{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-08-27/",
+		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
 	}, {
 		"message-changed is defined by dms-events, at the v0.4.0 revision",
 		model.DMSMessageChanged{Base: base("dms-1", "dms"), ToMemoryType: model.MemoryChangeable, ToSlot: 1},
-		"https://schemas.open-its.org/openits-dms-events/2026-08-27/",
+		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
 	}, {
 		"sign-status-report is defined by dms-events, at the v0.4.0 revision",
 		model.DMSSignStatusReport{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-08-27/",
+		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(tc.ev)
@@ -668,7 +732,7 @@ func TestEncode_IdentityExcludesProducerAssignedLeaves(t *testing.T) {
 	// produce different ids, destroying restart-invariance and replay dedup.
 	em := New("cabinet-poller-1", testEpoch)
 	ev := model.ModeChanged{
-		Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeNormal,
+		Base: base("asc-1", "asc"), From: model.ModeFree, To: model.ModeCoordinated,
 	}
 
 	first, _, _ := em.Encode(ev)
@@ -688,7 +752,7 @@ func TestEncode_IdentityExcludesProducerAssignedLeaves(t *testing.T) {
 	if err := proto.Unmarshal(first.Identity, &id); err != nil {
 		t.Fatalf("identity is not a valid payload: %v", err)
 	}
-	if id.GetMode() != "openits-signal-control-types:mode-free" {
+	if id.GetMode() != "openits-signal-control-types:mode-coordinated" {
 		t.Errorf("identity lost the event's substance: current = %q", id.GetMode())
 	}
 	if id.GetSequence() != 0 || id.GetObservedBy() != "" {
@@ -702,10 +766,10 @@ func TestEncode_IdentityIsSensitiveToRealChanges(t *testing.T) {
 	// events into one id.
 	em := New("cabinet-poller-1", testEpoch)
 	a, _, _ := em.Encode(model.ModeChanged{
-		Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeNormal,
+		Base: base("asc-1", "asc"), From: model.ModeFree, To: model.ModeCoordinated,
 	})
 	b, _, _ := em.Encode(model.ModeChanged{
-		Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeOff,
+		Base: base("asc-1", "asc"), From: model.ModeCoordinated, To: model.ModeFree,
 	})
 	if string(a.Identity) == string(b.Identity) {
 		t.Error("different transitions produced the same identity")
@@ -1068,6 +1132,7 @@ func TestEncode_DeviceStatusChangedIsCommHealth(t *testing.T) {
 		enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.DeviceStatusChanged{
 			Base:      model.Base{DeviceID: "asc-1", DeviceKind: "asc", OccurredAt: at},
 			Reachable: tc.reachable, Reason: "read timeout", ConsecutiveFailures: 1,
+			LastContact: at.Add(-time.Minute), // comm-lost requires it (ADR 0024)
 		})
 		if err != nil || !ok {
 			t.Fatalf("reachable=%v: ok=%v err=%v", tc.reachable, ok, err)

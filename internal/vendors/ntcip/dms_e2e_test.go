@@ -24,8 +24,10 @@ import (
 // The sign holds its baseline until the first sign-status-report reaches
 // the bus — which only happens once the engine has loaded its state and is
 // diffing (ADR 0020 clause 2; a change during that hold is not evidence) —
-// then changes its face message and control mode, so message-changed and
-// mode-changed land. Logs every CloudEvent that reaches the bus.
+// then blanks its face and goes to local control. The blank face lands as
+// message-changed and as mode-changed (display state normal → blank); the
+// control change has no ce-type in openits-models v0.8.0 and is dropped
+// loudly (ADR 0024). Logs every CloudEvent that reaches the bus.
 func TestDMSEventsReachJetStream(t *testing.T) {
 	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -128,8 +130,8 @@ func allTrue(m map[string]bool) bool {
 	return true
 }
 
-// scriptedDMS returns the baseline until changed is set, then a new face
-// message and local control, so the transition differs fire.
+// scriptedDMS returns the baseline until changed is set, then a blank face
+// and local control, so the transition differs fire.
 type scriptedDMS struct {
 	mu      sync.Mutex
 	changed atomic.Bool
@@ -154,7 +156,7 @@ func (s *scriptedDMS) GetAll(_ context.Context, oids []string) (snmp.Values, err
 		ints[oidDMSControlMode] = 2 // local
 		ints[oidDMSMsgSourceMode] = 2
 		octets[oidDMSMsgTableSource] = []byte{3, 0, 4, 0x12, 0x34} // changeable #4
-		octets[oidDMSCurrentBufferMULTI] = []byte("[jl3]CRASH AHEAD")
+		octets[oidDMSCurrentBufferMULTI] = []byte{}                // blank face
 	}
 
 	out := snmp.Values{Ints: map[string]int64{}, Octets: map[string][]byte{}}

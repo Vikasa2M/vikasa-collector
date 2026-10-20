@@ -5,8 +5,9 @@ const KindSignalStatus Kind = "signal-status"
 
 // SignalStatus is the operational state of a signal controller at one poll.
 type SignalStatus struct {
-	Mode             ControllerMode
-	InConflictFlash  bool
+	Mode             ControllerMode // coordination; independent of CabinetOutput
+	CabinetOutput    CabinetOutput
+	FlashCause       FlashCause // meaningful only with OutputFlash
 	ActivePlanID     uint32
 	PreemptionActive bool
 	PreemptionSource string

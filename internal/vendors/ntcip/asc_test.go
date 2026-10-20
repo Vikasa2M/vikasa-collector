@@ -33,7 +33,7 @@ func TestASCReadGolden(t *testing.T) {
 	if !ok {
 		t.Fatal("missing signal-status facet")
 	}
-	want := model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}
+	want := model.SignalStatus{CabinetOutput: model.OutputNormal, ActivePlanID: 3}
 	got := f.(model.SignalStatus)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("SignalStatus mismatch (-want +got):\n%s", diff)
@@ -58,7 +58,7 @@ func TestASCReadPreemptionAndFlash(t *testing.T) {
 	}
 	got, _ := snap.Facet(model.KindSignalStatus)
 	want := model.SignalStatus{
-		Mode: model.ModeFlash, InConflictFlash: true, ActivePlanID: 3,
+		CabinetOutput: model.OutputFlash, FlashCause: model.FlashMonitor, ActivePlanID: 3,
 		PreemptionActive: true, PreemptionSource: "preempt-2",
 	}
 	if diff := cmp.Diff(want, got.(model.SignalStatus)); diff != "" {
@@ -424,4 +424,37 @@ func mustRead(t *testing.T, fx map[string]int64) *model.Snapshot {
 		t.Fatalf("Read: %v", err)
 	}
 	return snap
+}
+
+// Unit operation status is cabinet output, never coordination (ADR 0024):
+// Mode stays unknown whatever it says. Standby says nothing about the heads,
+// and a flash without the conflict reading has no known cause.
+func TestASCOperationStatusMapsToCabinetOutput(t *testing.T) {
+	cases := []struct {
+		name      string
+		op, flash int64
+		output    model.CabinetOutput
+		cause     model.FlashCause
+	}{
+		{"normal", 2, 0, model.OutputNormal, model.FlashCauseUnknown},
+		{"flash, conflict", 4, 2, model.OutputFlash, model.FlashMonitor},
+		{"flash, cause not reported", 4, 0, model.OutputFlash, model.FlashCauseUnknown},
+		{"standby", 3, 0, model.OutputUnknown, model.FlashCauseUnknown},
+		{"unrecognized", 9, 2, model.OutputUnknown, model.FlashCauseUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fx := maps.Clone(healthyFixture)
+			fx[".1.3.6.1.4.1.1206.4.2.1.2.7.0"] = c.op
+			fx[".1.3.6.1.4.1.1206.4.2.1.2.5.0"] = c.flash
+			f, ok := mustRead(t, fx).Facet(model.KindSignalStatus)
+			if !ok {
+				t.Fatal("no signal-status facet")
+			}
+			st := f.(model.SignalStatus)
+			if st.CabinetOutput != c.output || st.FlashCause != c.cause || st.Mode != model.ModeUnknown {
+				t.Fatalf("got output %v, cause %v, mode %v; want %v, %v, unknown", st.CabinetOutput, st.FlashCause, st.Mode, c.output, c.cause)
+			}
+		})
+	}
 }

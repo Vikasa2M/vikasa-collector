@@ -1,29 +1,90 @@
 package model
 
-// ControllerMode is the collector-owned controller mode enum. Wire enums
-// live in wire versions; this one never changes because upstream renames.
+// ControllerMode is a signal controller's coordination mode: whether it is
+// running a coordinated timing plan or running free. It says nothing about
+// what the signal heads show — that is CabinetOutput (ADR 0024).
 type ControllerMode uint8
 
-// ControllerMode values. The zero value, ModeUnknown, means the controller
-// did not report a mode.
+// ControllerMode values. The zero value, ModeUnknown, means the adapter did
+// not read coordination (ntcip-asc does not, today).
 const (
 	ModeUnknown ControllerMode = iota
-	ModeNormal
-	ModeFlash
-	ModeStandby
-	ModeOff
+	ModeCoordinated
+	ModeFree
 )
 
 func (m ControllerMode) String() string {
 	switch m {
-	case ModeNormal:
+	case ModeCoordinated:
+		return "coordinated"
+	case ModeFree:
+		return "free"
+	default:
+		return "unknown"
+	}
+}
+
+// CabinetOutput is what the signal heads are doing: normal operation,
+// flashing, or dark. It is independent of coordination: a coordinated
+// controller under monitor flash is ModeCoordinated with OutputFlash.
+type CabinetOutput uint8
+
+// CabinetOutput values. The zero value, OutputUnknown, means not reported.
+const (
+	OutputUnknown CabinetOutput = iota
+	OutputNormal
+	OutputFlash
+	OutputDark
+)
+
+func (o CabinetOutput) String() string {
+	switch o {
+	case OutputNormal:
 		return "normal"
-	case ModeFlash:
+	case OutputFlash:
 		return "flash"
-	case ModeStandby:
-		return "standby"
-	case ModeOff:
-		return "off"
+	case OutputDark:
+		return "dark"
+	default:
+		return "unknown"
+	}
+}
+
+// FlashCause is why the cabinet is flashing. Meaningful only with
+// OutputFlash; the zero value, FlashCauseUnknown, means not reported.
+type FlashCause uint8
+
+// FlashCause values.
+const (
+	FlashCauseUnknown    FlashCause = iota
+	FlashMonitor                    // the conflict monitor / MMU forced flash
+	FlashControllerFault            // the controller's own fault monitor
+	FlashAutomatic                  // automatic flash commanded by the controller
+	FlashManual                     // a technician's manual flash switch
+	FlashStartup                    // start-up flash
+	FlashPreempt                    // flash as part of a preemption sequence
+	FlashScheduled                  // programmed time-of-day flash
+	FlashOther                      // vendor-specific
+)
+
+func (c FlashCause) String() string {
+	switch c {
+	case FlashMonitor:
+		return "monitor"
+	case FlashControllerFault:
+		return "controller-fault"
+	case FlashAutomatic:
+		return "automatic"
+	case FlashManual:
+		return "manual"
+	case FlashStartup:
+		return "startup"
+	case FlashPreempt:
+		return "preempt"
+	case FlashScheduled:
+		return "scheduled"
+	case FlashOther:
+		return "other"
 	default:
 		return "unknown"
 	}
