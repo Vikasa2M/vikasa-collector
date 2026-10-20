@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -25,6 +26,20 @@ func TestRunPrintsVersion(t *testing.T) {
 // can tell "the unit file is wrong" from "the cabinet is wrong".
 func TestRunExitCodes(t *testing.T) {
 	cfg := filepath.Join("..", "..", "collector.yaml")
+	// The shipped example with one device id that would add a segment to the
+	// ce-source URN: a config error, so exit 1.
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	colonID := filepath.Join(t.TempDir(), "colon-id.yaml")
+	bad := strings.Replace(string(raw), "- id: asc-main-and-5th", `- id: "asc:main"`, 1)
+	if bad == string(raw) {
+		t.Fatal("collector.yaml no longer has the device id this test rewrites")
+	}
+	if err := os.WriteFile(colonID, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name string
 		args []string
@@ -39,6 +54,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"plaintext remote -nats", []string{"-config", cfg, "-nats", "nats://10.0.0.5:4222"}, 2},
 		{"missing -nats-creds file", []string{"-config", cfg, "-nats-creds", "/nonexistent/x.creds"}, 2},
 		{"unreadable config", []string{"-config", filepath.Join(t.TempDir(), "nope.yaml")}, 1},
+		{"device id that would corrupt the URN", []string{"-config", colonID}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
