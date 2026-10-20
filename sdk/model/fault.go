@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // KindFaultSet is the set of faults currently raised on a device.
 const KindFaultSet Kind = "fault-set"
 
@@ -11,6 +13,10 @@ type Fault struct {
 	Severity    FaultSeverity
 	Category    FaultCategory
 	Description string
+	// FirstObserved is when the fault began: the device's own time if it
+	// reports one, else zero, and the fault differ stamps the first poll
+	// that saw it and carries that forward (ADR 0024).
+	FirstObserved time.Time `json:",omitzero"`
 }
 
 // FaultSet is every fault raised on the device at one poll. The differ takes

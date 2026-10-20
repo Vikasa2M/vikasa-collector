@@ -2,6 +2,7 @@ package synth
 
 import (
 	"sort"
+	"time"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -13,6 +14,30 @@ func NewFaultDiffer() Differ { return faultDiffer{} }
 type faultDiffer struct{}
 
 func (faultDiffer) Facet() model.Facet { return model.FaultSet{} }
+
+// Carry stamps each fault with when it was first seen: the device's own time
+// if the adapter supplied one, else the time remembered from an earlier poll,
+// else this poll's time. Carried forward, it survives restarts with the rest
+// of the stored facet (ADR 0024).
+func (faultDiffer) Carry(prev, curr model.Facet, at time.Time) model.Facet {
+	var seen map[string]model.Fault
+	if prev != nil {
+		seen = index(prev.(model.FaultSet))
+	}
+	in := curr.(model.FaultSet).Faults
+	out := make([]model.Fault, len(in))
+	for i, f := range in {
+		if f.FirstObserved.IsZero() {
+			if p, ok := seen[f.ID]; ok && !p.FirstObserved.IsZero() {
+				f.FirstObserved = p.FirstObserved
+			} else {
+				f.FirstObserved = at
+			}
+		}
+		out[i] = f
+	}
+	return model.FaultSet{Faults: out}
+}
 
 func (faultDiffer) Diff(prev, curr model.Facet, base model.Base) []model.Event {
 	currFaults := index(curr.(model.FaultSet))
@@ -31,14 +56,17 @@ func (faultDiffer) Diff(prev, curr model.Facet, base model.Base) []model.Event {
 		f := currFaults[id]
 		events = append(events, model.FaultRaised{
 			Base: base, FaultID: f.ID, Severity: f.Severity,
-			Category: f.Category, Description: f.Description,
+			Category: f.Category, Description: f.Description, FirstObserved: f.FirstObserved,
 		})
 	}
 	for _, id := range sortedIDs(prevFaults) {
 		if _, still := currFaults[id]; still {
 			continue
 		}
-		events = append(events, model.FaultCleared{Base: base, FaultID: id})
+		// A fault restored from state written before first-seen times were
+		// kept has none; its clear then claims no start rather than a wrong one.
+		p := prevFaults[id]
+		events = append(events, model.FaultCleared{Base: base, FaultID: id, Category: p.Category, FirstObserved: p.FirstObserved})
 	}
 	return events
 }

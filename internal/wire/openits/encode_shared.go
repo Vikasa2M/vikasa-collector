@@ -18,6 +18,12 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 		kind := commHealth + "comm-lost"
 		if v.Reachable {
 			kind = commHealth + "comm-restored"
+		} else if v.LastContact.IsZero() {
+			// comm-lost must carry last-contact (openits-models v0.8.0). A
+			// device that has not answered since boot has none, so the event
+			// is declined and falls through to the collector-owned
+			// device-status-changed, which makes no such claim (ADR 0024).
+			return nil, false
 		}
 		// Only kind, device, time, observer and sequence. The catalog's
 		// attempt counters belong to comm-attempt-window, and the YANG
@@ -30,6 +36,9 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			ObservedBy:     proto.String(e.collectorID),
 			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
+		}
+		if !v.Reachable {
+			msg.(*commonv1.CommHealthEvent).LastContact = timestamppb.New(v.LastContact.UTC())
 		}
 
 	case model.FaultRaised:
@@ -51,19 +60,19 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			FaultId:        v.FaultID,
 			Severity:       severityFor(v.Severity),
 			Description:    optString(v.Description),
+			FirstObserved:  optTime(v.FirstObserved),
 		}
 
 	case model.FaultCleared:
-		kind, ok := faultKindIdentity(model.CategoryUnknown, v.DeviceKind)
+		kind, ok := faultKindIdentity(v.Category, v.DeviceKind)
 		if !ok {
 			return nil, false
 		}
 		msg = &commonv1.FaultCleared{
-			// A clear carries no category of its own — the domain FaultCleared
-			// has only the id, because the differ identifies it by set
-			// difference. The service base identity is the honest `kind`:
-			// consumers correlate raise and clear on (source-device-id,
-			// fault-id), not on kind.
+			// The clear names the same fault class as its raise: the differ
+			// carries the cleared fault's category from the remembered state
+			// (openits-models v0.8.0 conformance requires a service fault
+			// kind on both halves, not the base event kind).
 			Kind:           kind,
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
@@ -71,6 +80,7 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			FaultId:        v.FaultID,
+			FirstObserved:  optTime(v.FirstObserved),
 		}
 	default:
 		return nil, false

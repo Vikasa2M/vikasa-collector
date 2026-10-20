@@ -6,6 +6,7 @@ import (
 	cctvv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/cctv/v1"
 	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
 	pcpv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/perception/v1"
+	scv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/signal_control/v1"
 	tsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/traffic_sensor/v1"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
@@ -34,26 +35,58 @@ const (
 	zoneOccTypes = "openits-zone-occupancy-types:"
 )
 
-// controllerModeIdentity maps a domain controller mode to its upstream
-// identity. ok=false means the wire model has no identity for this mode, which
-// is a map-or-drop decision the caller must make explicitly rather than guess.
-//
-// ModeNormal maps to mode-FREE deliberately: upstream collapsed "normal" into
-// "free" because NTCIP and signal technicians treat uncoordinated-actuated
-// operation as a single mode. The mode-normal identity that does exist belongs
-// to openits-dms-types and is a sign display state, not a controller mode.
-//
-// ModeStandby and ModeUnknown have no controller-mode identity at all — the
-// upstream set is coordinated/free/flash/preempt/priority/manual/off. Adding
-// mode-standby upstream is tracked; until then those events are not claimed.
+// controllerModeIdentity maps the domain coordination mode to its
+// controller-mode identity (openits-models v0.8.0: coordinated, free,
+// unknown). ok=false for an unknown mode: a transition is reported only to a
+// known value (ADR 0024), and an absent leaf is truer than mode-unknown when
+// coordination was simply not read.
 func controllerModeIdentity(m model.ControllerMode) (string, bool) {
 	switch m {
-	case model.ModeNormal:
+	case model.ModeCoordinated:
+		return scTypes + "mode-coordinated", true
+	case model.ModeFree:
 		return scTypes + "mode-free", true
-	case model.ModeFlash:
-		return scTypes + "mode-flash", true
-	case model.ModeOff:
-		return scTypes + "mode-off", true
+	default:
+		return "", false
+	}
+}
+
+// cabinetOutputFor maps the domain cabinet output to the wire enum.
+// ok=false for unknown: the domain reports a cabinet-output transition only
+// to a known value, and the status report leaves it absent.
+func cabinetOutputFor(o model.CabinetOutput) (scv1.CabinetOutput, bool) {
+	switch o {
+	case model.OutputNormal:
+		return scv1.CabinetOutput_CABINET_OUTPUT_NORMAL, true
+	case model.OutputFlash:
+		return scv1.CabinetOutput_CABINET_OUTPUT_FLASH, true
+	case model.OutputDark:
+		return scv1.CabinetOutput_CABINET_OUTPUT_DARK, true
+	default:
+		return scv1.CabinetOutput_CABINET_OUTPUT_UNKNOWN, false
+	}
+}
+
+// flashCauseIdentity maps the domain flash cause to its flash-cause
+// identity; ok=false (leaf absent) when the cause was not reported.
+func flashCauseIdentity(c model.FlashCause) (string, bool) {
+	switch c {
+	case model.FlashMonitor:
+		return scTypes + "flash-monitor", true
+	case model.FlashControllerFault:
+		return scTypes + "flash-controller-fault", true
+	case model.FlashAutomatic:
+		return scTypes + "flash-automatic", true
+	case model.FlashManual:
+		return scTypes + "flash-manual", true
+	case model.FlashStartup:
+		return scTypes + "flash-startup", true
+	case model.FlashPreempt:
+		return scTypes + "flash-preempt", true
+	case model.FlashScheduled:
+		return scTypes + "flash-programmed-tod", true
+	case model.FlashOther:
+		return scTypes + "flash-other", true
 	default:
 		return "", false
 	}
@@ -475,52 +508,53 @@ const registryBase = "https://schemas.open-its.org/"
 // intended trade: a pin bump shows up as a reviewable diff of these constants
 // rather than as a silent behaviour change, and the goldens lock them.
 var dataSchemaFor = map[string]string{
-	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-09-02/",
+	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-10-16/",
 
-	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-07-21/",
-	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-07-21/",
+	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-10-17/",
 
-	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-07-21/",
+	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
 
 	// Same defining module for every service: fault-raised/cleared are
 	// declared once in openits-common-fault-events and reused, which is why
 	// six different services share one ce-dataschema.
-	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-07-21/",
-	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-07-21/",
+	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-10-14/",
 
-	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-07-21/",
-	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-07-21/",
-	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-07-21/",
-	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-07-21/",
-	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-07-21/",
+	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-10-17/",
 
 	// v0.4.0 moved openits-dms-events to 2026-08-27 (the phase leaf at
 	// 2026-08-23, then the two new notifications); the other event modules
 	// cut no revision between v0.3.0 and v0.4.0, so only these three moved.
-	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-08-27/",
-	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-08-27/",
-	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-08-27/",
+	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-10-13/",
+	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-10-13/",
+	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-10-13/",
 
-	"openits.traffic-sensor.traffic-interval-report.v1": registryBase + "openits-traffic-sensor-events/2026-07-21/",
+	"openits.traffic-sensor.traffic-interval-report.v1": registryBase + "openits-traffic-sensor-events/2026-10-13/",
 
-	"openits.perception.zone-incident-detected.v1": registryBase + "openits-perception-events/2026-08-15/",
-	"openits.perception.zone-incident-updated.v1":  registryBase + "openits-perception-events/2026-08-15/",
-	"openits.perception.zone-incident-cleared.v1":  registryBase + "openits-perception-events/2026-08-15/",
-	"openits.perception.zone-interval-report.v1":   registryBase + "openits-perception-events/2026-08-15/",
+	"openits.perception.zone-incident-detected.v1": registryBase + "openits-perception-events/2026-10-13/",
+	"openits.perception.zone-incident-updated.v1":  registryBase + "openits-perception-events/2026-10-13/",
+	"openits.perception.zone-incident-cleared.v1":  registryBase + "openits-perception-events/2026-10-13/",
+	"openits.perception.zone-interval-report.v1":   registryBase + "openits-perception-events/2026-10-13/",
 
 	// A different defining module, not a perception revision: v0.3.0 split
 	// the presence half of the interval into its own service, so this
 	// ce-type validates against openits-zone-occupancy-events rather than
 	// against the module its sibling event uses.
-	"openits.zone-occupancy.zone-occupancy-interval-report.v1": registryBase + "openits-zone-occupancy-events/2026-08-15/",
+	"openits.zone-occupancy.zone-occupancy-interval-report.v1": registryBase + "openits-zone-occupancy-events/2026-10-16/",
 
-	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-07-21/",
-	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-08-05/",
+	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-10-13/",
 }

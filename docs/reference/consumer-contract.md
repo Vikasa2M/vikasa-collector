@@ -121,11 +121,18 @@ A device becoming unreachable, or coming back, is published on the
 **catalog** root as `openits.<service>.comm-health-event.v1`, with `kind`
 `openits-common-comm-health-events:comm-lost` or `…:comm-restored`,
 wherever the pinned openits-models release gives that service the channel
-— signal-control today. For a device kind whose service does not have it
-yet (DMS today), the same transition goes out as the collector-owned
-`openits-collector.health.device-status-changed.v1` instead, so it is
-never lost. That fallback shrinks as upstream adds the channel
-([ADR 0019](../adr/0019-collector-self-health.md), as amended).
+— signal-control today. A comm-lost carries `last-contact`, the last time
+the collector got a valid response; live state for that device is stale as
+of then. The same transition goes out as the collector-owned
+`openits-collector.health.device-status-changed.v1` instead in two cases,
+so it is never lost:
+
+- the device kind's service has no comm-health channel yet (DMS today),
+  which shrinks as upstream adds the channel
+  ([ADR 0019](../adr/0019-collector-self-health.md), as amended);
+- the device has not answered since the collector started, so there is no
+  last contact to report
+  ([ADR 0024](../adr/0024-openits-models-v0.8-domain-changes.md)).
 
 Both report transitions only: the first failed read after a success, and
 the first success after a failure. An adapter crash or contract violation

@@ -16,7 +16,7 @@ this tier each go deep on one part; [Reading on](#reading-on) lists them.
 - **Snapshot** — everything one poll of one device read: a list of facets,
   plus a note of each facet the adapter failed to read.
 - **Domain event** — a change the collector found by comparing two
-  snapshots, such as "the mode changed from free to flash". Domain types
+  snapshots, such as "the cabinet went from normal to flash". Domain types
   live in `sdk/model`, which the collector owns.
 - **ce-type** — the event's name in the openits-models catalog, such as
   `openits.signal-control.mode-changed.v1`. openits-models is a separate
@@ -143,9 +143,12 @@ op, ok := vals[oidOperationStatus]
 ```
 
 If the OID answered, it appends a `model.SignalStatus` facet with
-`Mode: modeFromOperation(op)`. If it did not, the adapter does not guess a
-mode. It records a `model.FacetError` for `KindSignalStatus` and leaves the
-facet out of the snapshot.
+`CabinetOutput: outputFromOperation(op)`: what the signal heads show
+(normal, flash, dark), which is a different fact from the controller's
+coordination mode ([ADR 0024](../adr/0024-openits-models-v0.8-domain-changes.md)).
+If it did not answer, the adapter does not guess. It records a
+`model.FacetError` for `KindSignalStatus` and leaves the facet out of the
+snapshot.
 
 **2. Runner.** `pollOnce` sets `snap.DeviceKind` to `asc` (from the
 adapter's `Descriptor`) and calls `engine.Apply(snap)`.
@@ -153,14 +156,16 @@ adapter's `Descriptor`) and calls `engine.Apply(snap)`.
 **3. Synth engine.** `Apply` finds the `SignalStatus` facet and calls its
 differ (`signalDiffer`, `internal/synth/signal.go`) with the device's
 last-known `SignalStatus`. The differ always emits an
-`OperationalStatusReport`. When a previous value exists and the mode
-changed, it also emits `model.ModeChanged{From: ..., To: ...}`.
+`OperationalStatusReport`. When a previous value exists and the cabinet
+output changed to a known value, it also emits
+`model.CabinetOutputChanged{From: ..., To: ..., Cause: ...}`. Coordination
+changes are a separate axis and a separate event, `model.ModeChanged`.
 
 **4. Wire emitter.** The openits emitter's `Encode` looks up
-`key{"mode-changed", "asc"}` in `ceTypeFor` and gets
-`openits.signal-control.mode-changed.v1`. The signal-control encoder then
-builds the protobuf payload. It declines the event instead if the mode has
-no controller-mode identity in the catalog (standby, for example).
+`key{"cabinet-output-changed", "asc"}` in `ceTypeFor` and gets
+`openits.signal-control.cabinet-output-changed.v1`. The signal-control
+encoder then builds the protobuf payload, with the flash cause set only when
+the output is flash.
 
 **5. Publisher.** `internal/app.encodeAndEnqueue` builds the envelope and
 calls `Publisher.Enqueue` with the device ID. With the default seven-token
@@ -168,7 +173,7 @@ template, device `asc-main-and-5th`, and tenant `region=us-ga`,
 `agency=metro-atlanta`, `agency_unit=d01`, the subject is:
 
 ```
-openits.us-ga.metro-atlanta.d01.signal-control.asc-main-and-5th.mode-changed
+openits.us-ga.metro-atlanta.d01.signal-control.asc-main-and-5th.cabinet-output-changed
 ```
 
 The ce-type travels separately, in the CloudEvents `type` header of the same
@@ -218,7 +223,10 @@ emitter maps it to the catalog's
 `openits.signal-control.comm-health-event.v1`. The catalog has no
 comm-health channel for other device kinds yet, so for them the openits
 emitter declines and the health emitter publishes
-`openits-collector.health.device-status-changed.v1`.
+`openits-collector.health.device-status-changed.v1`. The same fallback
+carries an `asc` loss when the controller has not answered since the
+collector started: comm-lost must carry the last contact time, and there is
+none to give ([ADR 0024](../adr/0024-openits-models-v0.8-domain-changes.md)).
 
 ## The collector's own events
 

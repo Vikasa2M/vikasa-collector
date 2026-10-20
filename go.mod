@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.9
 
 require (
-	github.com/Vikasa2M/openits-models v0.7.0
+	github.com/Vikasa2M/openits-models v0.8.0
 	github.com/google/go-cmp v0.7.0
 	github.com/gosnmp/gosnmp v1.45.0
 	github.com/nats-io/jwt/v2 v2.8.2

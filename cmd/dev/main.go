@@ -99,13 +99,17 @@ func (s *syntheticASC) Read(context.Context) (*model.Snapshot, error) {
 
 	snap := &model.Snapshot{DeviceID: "dev-asc-1", SampledAt: time.Now().UTC()}
 
-	// Alternate mode every third poll so mode-changed fires periodically
-	// rather than only once.
-	mode := model.ModeNormal
+	// Alternate cabinet output every third poll, and coordination every
+	// fifth, so cabinet-output-changed and mode-changed both fire
+	// periodically rather than only once.
+	st := model.SignalStatus{Mode: model.ModeCoordinated, CabinetOutput: model.OutputNormal, ActivePlanID: 3}
 	if (s.polls/3)%2 == 1 {
-		mode = model.ModeFlash
+		st.CabinetOutput, st.FlashCause = model.OutputFlash, model.FlashMonitor
 	}
-	snap.Facets = append(snap.Facets, model.SignalStatus{Mode: mode, ActivePlanID: 3})
+	if (s.polls/5)%2 == 1 {
+		st.Mode = model.ModeFree
+	}
+	snap.Facets = append(snap.Facets, st)
 
 	// Raise a fault for a stretch of polls, then clear it, so both halves of
 	// the fault family appear.

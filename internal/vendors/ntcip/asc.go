@@ -110,10 +110,15 @@ func (a *asc) readSignalStatus(snap *model.Snapshot, vals map[string]int64) {
 		})
 		return
 	}
+	// Unit operation status says what the heads are doing, not whether the
+	// controller is coordinated (ADR 0024): it maps to CabinetOutput, and
+	// Mode stays unknown because coordination status is not read.
 	st := model.SignalStatus{
-		Mode:            modeFromOperation(op),
-		InConflictFlash: vals[oidFlashStatus] == 2,
-		ActivePlanID:    uint32(vals[oidPatternStatus]),
+		CabinetOutput: outputFromOperation(op),
+		ActivePlanID:  uint32(vals[oidPatternStatus]),
+	}
+	if st.CabinetOutput == model.OutputFlash && vals[oidFlashStatus] == 2 {
+		st.FlashCause = model.FlashMonitor // the conflict-flash reading
 	}
 	if p := vals[oidPreemptStatus]; p > 0 {
 		st.PreemptionActive = true
@@ -226,15 +231,16 @@ func clampOccupancyTenths(occ int64) uint16 {
 	}
 }
 
-func modeFromOperation(v int64) model.ControllerMode {
+// outputFromOperation maps NTCIP unit operation status to cabinet output.
+// Standby (3) says the controller is not in normal control without saying
+// what the heads show, so it is unknown, like any value not listed.
+func outputFromOperation(v int64) model.CabinetOutput {
 	switch v {
 	case 2:
-		return model.ModeNormal
-	case 3:
-		return model.ModeStandby
+		return model.OutputNormal
 	case 4:
-		return model.ModeFlash
+		return model.OutputFlash
 	default:
-		return model.ModeUnknown
+		return model.OutputUnknown
 	}
 }

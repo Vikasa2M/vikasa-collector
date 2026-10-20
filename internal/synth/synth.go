@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -28,6 +29,15 @@ type Differ interface {
 // transitions. After a restart such a differ simply starts from a first
 // observation.
 type volatile interface{ Volatile() bool }
+
+// carrier is implemented by a differ that remembers something the device
+// does not report on every poll — today, when each fault was first seen
+// (ADR 0024). Carry returns the facet to diff and remember in place of curr,
+// built from what was remembered (prev, nil on first observation) and this
+// poll's time. It must not change anything the device did report.
+type carrier interface {
+	Carry(prev, curr model.Facet, at time.Time) model.Facet
+}
 
 // ChangeHook observes every facet the engine now remembers for a device
 // (non-volatile kinds only). It runs under the engine's lock, so it must
@@ -173,6 +183,9 @@ func (e *Engine) Apply(snap *model.Snapshot) []model.Event {
 				e.reject(snap.DeviceID, k, fmt.Sprintf("%T", f))
 			}
 			continue
+		}
+		if c, ok := d.(carrier); ok {
+			f = c.Carry(dev[k], f, snap.SampledAt)
 		}
 		events = append(events, d.Diff(dev[k], f, base)...)
 		dev[k] = f

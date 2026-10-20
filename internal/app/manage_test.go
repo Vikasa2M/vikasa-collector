@@ -27,7 +27,7 @@ func (s *switchableASC) Read(context.Context) (*model.Snapshot, error) {
 		return nil, errors.New("read timeout")
 	}
 	return &model.Snapshot{DeviceID: "asc-1", SampledAt: time.Now().UTC(),
-		Facets: []model.Facet{model.SignalStatus{Mode: model.ModeNormal}}}, nil
+		Facets: []model.Facet{model.SignalStatus{CabinetOutput: model.OutputNormal}}}, nil
 }
 
 func freeAddr(t *testing.T) string {

@@ -74,3 +74,38 @@ func identitiesIn(t *testing.T, path string) map[string]bool {
 	}
 	return names
 }
+
+// ce-dataschema names the schema revision a payload conforms to. Older
+// revisions stay in the registry forever, so a stale one still resolves —
+// it just describes a payload shape we no longer send. Every entry must name
+// its module's NEWEST revision in the pinned release's schema registry, so a
+// pin bump that forgets to move them fails here.
+func TestDataSchemasNameThePinnedRevision(t *testing.T) {
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-m", "-f", "{{.Dir}}", modelsModule).Output()
+	if err != nil {
+		t.Fatalf("locate %s: %v", modelsModule, err)
+	}
+	registry := filepath.Join(strings.TrimSpace(string(out)), "schema-registry")
+	for ceType, url := range dataSchemaFor {
+		rest, ok := strings.CutPrefix(url, registryBase)
+		module, rev, ok2 := strings.Cut(strings.TrimSuffix(rest, "/"), "/")
+		if !ok || !ok2 {
+			t.Errorf("%s: dataschema %q is not %s<module>/<revision>/", ceType, url, registryBase)
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(registry, module))
+		if err != nil {
+			t.Errorf("%s: module %s is not in the pinned schema registry: %v", ceType, module, err)
+			continue
+		}
+		newest := ""
+		for _, e := range entries {
+			if e.IsDir() && e.Name() > newest {
+				newest = e.Name() // revisions are YYYY-MM-DD, so lexical is chronological
+			}
+		}
+		if rev != newest {
+			t.Errorf("%s: dataschema names %s revision %s; the pinned release's newest is %s", ceType, module, rev, newest)
+		}
+	}
+}

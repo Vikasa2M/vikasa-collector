@@ -34,20 +34,32 @@ func (b Base) EventOccurredAt() time.Time { return b.OccurredAt }
 // signal controller (emitted every poll, not just on change).
 type OperationalStatusReport struct {
 	Base
-	Mode            ControllerMode
-	InConflictFlash bool
-	ActivePlanID    uint32
+	Mode             ControllerMode
+	CabinetOutput    CabinetOutput
+	FlashCause       FlashCause
+	PreemptionActive bool
+	ActivePlanID     uint32
 }
 
 func (OperationalStatusReport) EventKind() string { return "operational-status-report" }
 
-// ModeChanged fires when the controller mode transitions.
+// ModeChanged fires when the coordination mode transitions to a known value.
 type ModeChanged struct {
 	Base
 	From, To ControllerMode
 }
 
 func (ModeChanged) EventKind() string { return "mode-changed" }
+
+// CabinetOutputChanged fires when what the signal heads show transitions to
+// a known value (normal, flash, dark). Cause is set when To is OutputFlash.
+type CabinetOutputChanged struct {
+	Base
+	From, To CabinetOutput
+	Cause    FlashCause
+}
+
+func (CabinetOutputChanged) EventKind() string { return "cabinet-output-changed" }
 
 // PlanChanged fires when the active timing plan transitions.
 type PlanChanged struct {
@@ -75,10 +87,11 @@ func (PreemptionCleared) EventKind() string { return "preemption-cleared" }
 // timestamp of its own, because the adapter has no memory to know one.
 type FaultRaised struct {
 	Base
-	FaultID     string
-	Severity    FaultSeverity
-	Category    FaultCategory
-	Description string
+	FaultID       string
+	Severity      FaultSeverity
+	Category      FaultCategory
+	Description   string
+	FirstObserved time.Time // when the fault began (ADR 0024)
 }
 
 func (FaultRaised) EventKind() string { return "fault-raised" }
@@ -88,7 +101,9 @@ func (FaultRaised) EventKind() string { return "fault-raised" }
 // it could not read, so absence of evidence is never a clear.
 type FaultCleared struct {
 	Base
-	FaultID string
+	FaultID       string
+	Category      FaultCategory // the cleared fault's, so the clear names the same class as its raise
+	FirstObserved time.Time     // when the cleared fault began (ADR 0024)
 }
 
 func (FaultCleared) EventKind() string { return "fault-cleared" }

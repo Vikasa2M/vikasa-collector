@@ -34,6 +34,9 @@ type Runner struct {
 	jitter func(time.Duration) time.Duration
 
 	consecutiveFailures int
+	// lastContact is the last successful poll; zero until the device first
+	// answers. comm-lost carries it as last-contact (ADR 0024).
+	lastContact time.Time
 
 	// pending receives the result of a Read that outlived its poll. While it
 	// is non-nil that Read is still running, and no new one is started:
@@ -161,10 +164,13 @@ func (r *Runner) pollOnce(ctx context.Context) {
 			r.out([]model.Event{model.DeviceStatusChanged{
 				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: time.Now().UTC()},
 				Reachable: false, Reason: err.Error(), ConsecutiveFailures: 1,
+				LastContact: r.lastContact,
 			}})
 		}
 	default:
-		r.devices.PollOK(r.deviceID, time.Now().UTC())
+		now := time.Now().UTC()
+		r.devices.PollOK(r.deviceID, now)
+		r.lastContact = now
 		if r.consecutiveFailures > 0 {
 			r.out([]model.Event{model.DeviceStatusChanged{
 				Base:      model.Base{DeviceID: r.deviceID, DeviceKind: r.deviceKind, OccurredAt: time.Now().UTC()},

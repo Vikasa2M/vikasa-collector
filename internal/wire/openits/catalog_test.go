@@ -136,6 +136,7 @@ var unmapped = map[string]unmappedReason{
 	// reversible-lane
 	"openits.reversible-lane.fault-cleared.v1":         serviceNotModeled,
 	"openits.reversible-lane.fault-raised.v1":          serviceNotModeled,
+	"openits.reversible-lane.gate-status-changed.v1":   serviceNotModeled,
 	"openits.reversible-lane.lane-state-changed.v1":    serviceNotModeled,
 	"openits.reversible-lane.lcs-conflict-detected.v1": serviceNotModeled,
 	"openits.reversible-lane.transition-timeout.v1":    serviceNotModeled,

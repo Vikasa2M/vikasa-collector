@@ -173,13 +173,16 @@ components:
   messages:
     openits-collector.health.device-status-changed.v1:
       contentType: application/json
-      summary: A device's reachability changed (up→down or down→up), for a device kind with no catalog comm-health channel.
+      summary: A device's reachability changed (up→down or down→up), when the catalog comm-health event cannot carry it.
       description: |
-        A fallback (ADR 0019, as amended). A device's reachability is a catalog
-        fact and goes out as <service>.comm-health-event (comm-lost /
+        A fallback (ADR 0019, as amended; ADR 0024). A device's reachability is
+        a catalog fact and goes out as <service>.comm-health-event (comm-lost /
         comm-restored) wherever the pinned catalog has that channel —
-        signal-control today. This collector-owned event carries it only for
-        device kinds whose service does not yet (DMS today), so it is not lost.
+        signal-control today. This collector-owned event carries it instead,
+        so it is not lost, when the device kind's service has no such channel
+        yet (DMS today), or when a device that has not answered since the
+        collector started is lost: comm-lost must carry the last contact time,
+        and there is none to give.
 
         Emitted only on transitions, never per failed poll: the first failure
         after success reports unreachable, and the first success after failure

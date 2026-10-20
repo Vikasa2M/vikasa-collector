@@ -14,8 +14,9 @@ func TestEventKindsAndAccessors(t *testing.T) {
 		ev   Event
 		kind string
 	}{
-		{OperationalStatusReport{Base: b, Mode: ModeNormal, ActivePlanID: 3}, "operational-status-report"},
-		{ModeChanged{Base: b, From: ModeNormal, To: ModeFlash}, "mode-changed"},
+		{OperationalStatusReport{Base: b, CabinetOutput: OutputNormal, ActivePlanID: 3}, "operational-status-report"},
+		{ModeChanged{Base: b, From: ModeFree, To: ModeCoordinated}, "mode-changed"},
+		{CabinetOutputChanged{Base: b, From: OutputNormal, To: OutputFlash, Cause: FlashMonitor}, "cabinet-output-changed"},
 		{PlanChanged{Base: b, FromPlanID: 3, ToPlanID: 7}, "plan-changed"},
 		{PreemptionActivated{Base: b, Source: "railroad"}, "preemption-activated"},
 		{PreemptionCleared{Base: b}, "preemption-cleared"},

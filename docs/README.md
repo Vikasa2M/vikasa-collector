@@ -75,9 +75,9 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 
 ### The code does not meet a bar the docs correctly state
 
-**48 catalog ce-types are declared upstream and unmapped; 3 of them are owed
-in services the collector already serves.** Against the v0.7.0 pin the
-emitter maps 29 of the catalog's 77 ce-types. Under
+**49 catalog ce-types are declared upstream and unmapped; 3 of them are owed
+in services the collector already serves.** Against the v0.8.0 pin the
+emitter maps 30 of the catalog's 79 ce-types. Under
 [ADR 0016](adr/0016-collector-as-transitional-shim.md) the collector adapts
 to the catalog, so an unmapped ce-type is work owed here, not a catalog
 problem.
@@ -88,7 +88,7 @@ pinned release: a newly declared ce-type fails CI until it is mapped or
 allowlisted, and an entry that is mapped or no longer declared fails as
 stale. Each entry carries one of four reasons:
 
-- **service not modelled** (31) — `ess`, `ramp-metering`,
+- **service not modelled** (32) — `ess`, `ramp-metering`,
   `reversible-lane`, `rsu`, `work-zone`. These need a domain facet and an
   adapter first, not just a mapping.
 - **describes a command** (3) — the `openits.cctv.*` PTZ and lockout
