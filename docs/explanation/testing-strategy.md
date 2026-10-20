@@ -1,316 +1,269 @@
 # Testing strategy: what each layer proves, and what it doesn't
 
-[`architecture.md`](architecture.md) names the four pipeline stages.
-[`adapter-to-model.md`](adapter-to-model.md), [`pluggability.md`](pluggability.md),
-and [`wire-boundary.md`](wire-boundary.md) each explain one stage's shape in
-depth. This document is not about any one stage — it is about the tests that
-sit across all of them, and the question a checklist never answers: what does
-a green test suite actually tell you, and what is it silent about?
+The other documents in this tier each explain one part of the pipeline.
+This one is about the tests that run across all of them, and the question a
+checklist never answers: what does a green test suite actually tell you,
+and what is it silent about?
 
-That framing is the point. Every layer below earns trust in something
-specific and is blind to something else. Treating a layer as proof of more
-than it checks is how a real bug survives to a cabinet nobody is watching,
-and how a real contribution gets blocked for the wrong reason (more on that
-below). If you are reviewing a PR, deciding what test to add for a change, or
-just trying to understand why `make check` runs the things it runs, this is
-the page.
+Each kind of test earns trust in something specific and is blind to
+something else. Treating a test as proof of more than it checks is how a
+real bug reaches a cabinet, and how a good contribution gets blocked for the
+wrong reason. Read this when reviewing a PR, choosing what test to add, or
+wondering why `make check` runs what it runs. For the tests a specific
+change *must* ship, see
+[`reference/test-requirements.md`](../reference/test-requirements.md).
 
 ## Golden tests: pin bytes, not meaning
 
-A golden test encodes a known input and asserts the output matches an exact,
-previously-committed value byte-for-byte. This repo has goldens at two
-layers:
+A golden test encodes a known input and asserts that the output matches a
+committed value byte for byte. There are goldens at two layers:
 
-- **Emitter goldens** — `internal/wire/openits/golden_test.go`'s
-  `TestGoldens` pins the exact proto bytes and ce-type every mapped domain
-  event encodes to. It is deliberately byte-exact rather than field-by-field:
-  a field-level assertion would pass through a proto field renumbering that
-  silently changes what a consumer receives, and a diff here forces a human
-  to decide whether the mapping changed on purpose or the models module moved
-  under it. `TestGoldensCoverEveryCEType` in the same file is the
-  exhaustiveness half — every ce-type the emitter can produce must have a
-  golden case, so the set can't quietly lag the mapping table.
-- **Subject goldens** — `internal/subject/subject_test.go`'s
-  `TestDefaultTemplateGolden` pins the exact rendered subject string for the
-  default template, so the multi-tenant token-splice behavior can't drift
-  silently either.
+- **Emitter goldens.** `TestGoldens` in `internal/wire/openits/golden_test.go`
+  pins, for every mapped event, the ce-type, the `ce-dataschema`, the exact
+  proto bytes, and the identity bytes that feed `ce-id`. It is byte-exact on
+  purpose: a field-by-field assertion would pass through a proto field
+  renumbering that changes what consumers receive.
+  `TestGoldensCoverEveryCEType` in the same file requires a golden case for
+  every ce-type the emitter can produce, so the cases cannot lag the
+  routing table.
+- **Subject goldens.** `TestDefaultTemplateGolden` in
+  `internal/subject/subject_test.go` pins the rendered subject for the
+  default template, catalog and collector-owned events alike.
 
-**What a golden test proves:** this exact input produces this exact output,
-today, and any future change to that mapping will be visible as a diff a
-human has to approve.
+**What a golden proves:** this input produces this output today, and any
+change to it shows up as a diff a human must approve.
 
-**What it does not prove:** that the output is *correct*. A golden test
-happily pins a wrong mapping forever — it only complains when the wrong
-mapping *changes*. `TestGoldens`'s own doc comment states the discipline that
-makes the pinned bytes worth anything: every case "was verified by decoding
-it and reading the result against its fixture before being pasted."
-Regenerating the hex without doing that step "turns a golden into a record
-of whatever the code happened to do, which is worse than no golden at all —
-it looks like coverage." A golden test is a change detector, not a
-correctness oracle; the correctness judgment happens once, by a human, at
-the moment the golden is written or updated.
+**What it does not prove:** that the output is *correct*. A golden happily
+pins a wrong mapping forever; it only complains when the mapping *changes*.
+`TestGoldens`'s doc comment states the discipline that makes the bytes
+worth anything: every case "was verified by decoding it and reading the
+result against its fixture before being pasted". Regenerating without that
+step "turns a golden into a record of whatever the code happened to do,
+which is worse than no golden at all — it looks like coverage." A golden is
+a change detector, not a correctness oracle. The correctness judgment is
+made once, by a person, when the golden is written or updated.
 
-Both golden rules above are enforced rules with their own canonical
-statement — see the
-["Every mapped ce-type has a byte-exact golden" row](../reference/invariants.md#every-mapped-ce-type-has-a-byte-exact-golden)
-in `invariants.md`.
+The rule itself is canonical in
+[every mapped ce-type has a byte-exact golden](../reference/invariants.md#every-mapped-ce-type-has-a-byte-exact-golden).
 
 ## Fixture replay: reproducible, not verified
 
-Adapters never talk to a live device in a test. `sdk/transport/snmp/snmptest.Static`
-(and the equivalents other transports would ship) replays a fixed
-OID → value map in place of a real SNMP agent — an adapter's `Read` runs
-against `Static` exactly as it would against the real `snmp.Client`
-interface, and gets back whatever the fixture says, every time, with no
-network and no hardware.
+Adapter tests never talk to a live device. `snmptest.Static`
+(`sdk/transport/snmp/snmptest`) replays fixed OID → value maps in place of
+a real SNMP agent: `Values` for integers, `Octets` for byte strings, and
+`FailCall` to fail one particular request. An adapter's `Read` runs against
+it exactly as it would against the real `snmp.Client`, with no network and
+no hardware.
 
-**What fixture replay proves:** the adapter under test parses, decodes, and
-assembles a `Snapshot` correctly *from the bytes it was handed*. It is
-deterministic and hardware-free — a maintainer can review an adapter PR by
-reading the mapping and eyeballing the fixture, with nothing else running.
+**What fixture replay proves:** the adapter parses, decodes, and assembles
+a `Snapshot` correctly *from the values it was handed*. It is deterministic
+and hardware-free, so a maintainer can review an adapter by reading the
+mapping and the fixture.
 
-**What it does not prove — and cannot, by construction:** that the fixture
-resembles what a real device actually sends. `Static.Values` is a Go
-`map[string]int64` literal. A value recorded from a live SNMP walk and a
-value someone typed in until the test passed produce the exact same Go
-source, the exact same test run, and the exact same green checkmark. File
-format cannot distinguish them, because there is no file format in play —
-this repo has **no `testdata/` mechanism** of any kind. Every fixture,
-including `ntcip-asc`'s, is a Go literal committed alongside the test that
-uses it.
+**What it cannot prove:** that the fixture resembles what a real device
+sends. A fixture is a Go map literal in the test file; the repo has no
+`testdata/` recordings. A value captured from a live device and a value
+typed in until the test passed produce the same source, the same test run,
+and the same green check.
 
-This is not a hypothetical gap. `internal/vendors/ntcip/asc_test.go`'s
-`healthyFixture` is exactly this: a hand-typed map, not a device recording,
-and the adapter's own doc comment on the alarm bitmap says as much — it has
-never been validated against a physical controller. That fails an enforced
-rule with its own canonical statement — see the
-["No fixtures, no merge" row](../reference/invariants.md#no-fixtures-no-merge)
-in `invariants.md`; this repo's one shipping adapter does not meet that bar
-today. That gap is tracked, not hidden — see
-[known gaps and successor work](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state).
+The two shipped adapters show both sides. `ntcip-dms`'s fixture in
+`internal/vendors/ntcip/dms_test.go` is transcribed from live SNMP reads of
+a bench sign, and its comment says when and how. `ntcip-asc`'s
+`healthyFixture` in `asc_test.go` is hand-written, and the adapter's own
+comment says its alarm bitmap has never been checked against a physical
+controller. That falls short of
+[no fixtures, no merge](../reference/invariants.md#no-fixtures-no-merge),
+and the gap is tracked in
+[known gaps](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state).
+[`record-fixtures-from-a-device.md`](../how-to/record-fixtures-from-a-device.md)
+is how to capture a real one.
 
 ### Provenance is a review question, not a test
 
-Because no test can tell a recording from an invention, **provenance has to
-be judged by a reviewer reading the diff**, not asserted by CI. This
-distinction is not academic: while evaluating the `review-adapter-contribution`
-skill against synthetic adapter PRs, the unaided review — without the
-skill's guidance — blocked a clean adapter contribution twice, both times
-"over a fixture being a Go literal — the only form a fixture takes in this
-repo" (commit `5161b3f`). Literal-vs-file-format is not evidence of
-anything, since it is universal here; that objection would have burned a
-real contributor over a property no fixture in this repo could ever not
-have.
+No test can tell a recording from an invention, so **provenance is judged
+by a reviewer reading the diff**, not asserted by CI. This matters in
+practice. While the `review-adapter-contribution` skill was being evaluated
+against synthetic adapter PRs, a review without the skill's guidance
+blocked a clean contribution twice, both times for the fixture being a Go
+literal (commit `5161b3f`). Every fixture in this repo is a Go literal, so
+that objection carries no information and would turn away a real
+contributor.
 
-What a reviewer can actually look for is signal in the *values themselves*,
-not the format:
+What a reviewer can usefully look at is the *values*, not the format:
 
 - **Signs of hand-typing:** round numbers, values that exactly match the
-  test's assertions, a suspiciously minimal OID set, no capture metadata in
-  a comment, prose explaining what each value "should" mean.
-- **Signs of a real recording:** unexplained extra fields nobody would
-  bother inventing, values the test doesn't even assert on, device quirks
-  that only show up on real hardware — an odd default, a field a spec says
-  is optional but the device always populates.
+  test's assertions, a suspiciously minimal OID set, no note of when and
+  where the capture was made, comments explaining what each value "should"
+  mean.
+- **Signs of a real recording:** extra fields nobody would bother
+  inventing, values the test never asserts on, device quirks that only
+  appear on real hardware (an odd default, an optional field the device
+  always fills).
 
-`.claude/skills/review-adapter-contribution/SKILL.md` carries this checklist
-for reviewers; this document exists so the reasoning behind it — why the
-question has to be asked at all — is written down somewhere a newcomer will
-actually find it.
+The reviewer checklist lives in
+`.claude/skills/review-adapter-contribution/SKILL.md`; this section records
+why the question has to be asked at all.
 
 ## Differ tests: state transitions, and the absence rule
 
 Each facet kind has one `Differ` in `internal/synth`, tested table-driven
-against fixed timestamps (`internal/synth/signal_test.go`'s package-level
-`t0`, for example, rather than `time.Now()` — so a test's expected output
-never depends on when it happened to run).
+against fixed timestamps (for example `t0` in
+`internal/synth/signal_test.go`, rather than `time.Now()`), so expected
+output never depends on when the test ran.
 
-**What differ tests prove:** given a previous snapshot and a new one, the
-differ emits exactly the domain events the change actually represents — one
-test per axis that can change independently, a test for the first poll (no
-prior state to diff against), and a test confirming no events fire when
-nothing changed. Critically, differ tests are also where this repo proves
-its most load-bearing invariant — a rule with its own canonical statement,
-not restated here; see
-["Absence of evidence is never a state change"](../reference/invariants.md#absence-of-evidence-is-never-a-state-change)
-in `invariants.md`. What a differ test for this actually looks like: feed
-the engine a failed read for a facet that previously reported a fault, and
-assert zero events came out and the next successful poll still diffs
-against the pre-failure state, not a blank one.
+**What differ tests prove:** given a previous facet and a new one, the
+differ emits exactly the events the change represents. That means a test
+per axis that can change independently, one for the first observation (no
+previous state), and one confirming nothing fires when nothing changed.
 
-**What they do not prove:** that the underlying mechanism is exercised for
-*every* facet kind. The absence-of-evidence gate lives once, in shared code
-(`synth.Engine.Apply`), but only four of the collector's eight registered
-differs currently have a test that exercises the failed-read path for that
-specific facet: `TestFailedFacetSuspendsDiffing` (signal),
-`TestFailedFaultReadNeverClears` (fault), `TestFailedDetectorReadEmitsNothing`
-(detector), and `TestDMSFailedReadEmitsNothing` (DMS). The CCTV,
-traffic-interval, zone-incident, and zone-interval differs have none. The
-shared implementation makes a hidden per-facet bug unlikely, but "the shared
-code should handle it" is not the same claim as "a test proves it does" —
-see
-[known gaps and successor work](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state)
-for the tracked follow-up.
+Differ tests are also where the most important invariant is proven:
+[absence of evidence is never a state change](../reference/invariants.md#absence-of-evidence-is-never-a-state-change).
+Every registered differ has a failed-read test: a good poll, then a failed
+read, then a recovery. The recovery is chosen so that an engine which had
+forgotten the pre-failure state would emit something different, because
+"the failed poll emitted nothing" alone cannot tell a correct engine from
+one that wiped its memory. Engine-level tests in
+`internal/synth/engine_test.go` and `durable_test.go` cover the guards
+around the differs: a facet also reported as failed, a facet of the wrong
+type, and an engine held until it is seeded.
 
-## Conformance tests: does the published shape match the profile?
+**What they do not prove:** anything about a facet kind that does not exist
+yet. A new differ needs its own failed-read test; see
+[`test-requirements.md`](../reference/test-requirements.md#a-new-differ).
 
-Conformance tests check something goldens and differ tests can't: not "does
-this match what we pinned before," but "does this match an external
-contract this repo does not control the wording of." Two genuinely different
-things carry this name here, and conflating them is the mistake to avoid.
+## Conformance tests: does the published shape match a contract?
 
-**`internal/wire/tier2`'s `TestCollectorStreamPassesTheTier2Harness`**
-runs openits-models' own Tier 2 harness checks (`tools/conformance/tests`),
-imported rather than transcribed, against the catalog events a live
-collector publishes. That collector runs against an embedded, in-process
-`nats-server`, with scripted signal-controller and sign fixtures that drive
-every signal-control and DMS event family the emitter maps. Before any check
-runs, the test waits until every one of those families has been published, so
-no check can pass for want of the event it judges. It then runs the
-event-stream checks for each device kind's suite:
+Conformance tests ask a different question from goldens: not "does this
+match what we pinned before" but "does this match a contract this repo
+does not write". Several tests carry that idea, and they check different
+contracts.
 
-- subject shape;
-- `ce-type` format;
-- `ce-source` URN;
-- `ce-id` present;
-- the preemption and DMS event shapes.
+**`TestCollectorStreamPassesTheTier2Harness`** (`internal/wire/tier2`) runs
+openits-models' own Tier 2 conformance checks (`tools/conformance/tests`),
+imported rather than copied, against events a live collector publishes. The
+collector runs against an embedded NATS server, with scripted
+signal-controller and sign adapters. Before any check runs, the test waits
+until every event type in its `want` list has been published, so no check
+can pass for lack of the event it judges. It then runs each device kind's
+event-stream checks: subject shape, `ce-type` format, `ce-source` URN,
+`ce-id` present, and the preemption and DMS event shapes. The rest of each
+suite judges a device's YANG state tree, which a collector never publishes.
+Checks are looked up by name, so one the harness renames or drops fails the
+test instead of silently not running. Because the checks come from the
+pinned release, a pin bump that tightens the profile shows up here with no
+edit on our side.
 
-The rest of each suite judges a device's YANG state tree, which a collector
-never publishes. Checks are looked up by name, so a check the harness renames
-or drops fails the test instead of silently not running. The test lives under
-`internal/wire` because that is the only place allowed to import
-openits-models (ADR 0002). Because the checks come from the pinned release,
-a pin bump that tightens the profile shows up here with no edit on our side.
+**`internal/app/conformance_test.go`** covers what the harness does not:
+the binding's header constants (`ce-specversion`, `ce-datacontenttype`, and
+a `ce-dataschema` on every catalog event), and that collector-owned events
+stay off the catalog subject space
+([ADR 0011](../adr/0011-namespace-rooted-subject-spaces.md)).
+`internal/app/permissions_test.go` proves that the least-privilege broker
+grant the deploy guide documents is enough for everything the collector
+does ([ADR 0022](../adr/0022-transport-security-and-credentials.md)).
 
-**`internal/app/conformance_test.go`** covers what the harness does not check:
-
-- the binding's header constants (`ce-specversion`, `ce-datacontenttype`, a
-  `ce-dataschema` on every catalog event);
-- that collector-owned health stays off the catalog subject space
-  (ADR 0011).
-
-**`internal/wire/health/conformance_test.go`** proves something narrower and
-different: that the health emitter's `CETypes()` declaration agrees, in both
-directions, with this repo's own `asyncapi.yaml` (`TestCETypesMatchesWhatTheEmitterActuallyEmits`,
-`TestAsyncAPICoversEveryEmittedType`, `TestAsyncAPIDocumentsNothingUnemittable`).
-Every ce-type the emitter can produce must be documented; every documented
-channel must be something the emitter can actually produce; and the
-documented payload shape must match the bytes actually emitted. This is a
-genuine bidirectional check — it fails on drift in either direction, not
-just one.
+**`internal/wire/health/conformance_test.go`** checks the collector-owned
+schema against this repo's own `asyncapi.yaml`, in both directions. Every
+ce-type the health emitter can produce must be documented, every
+documented channel must be one it can produce, and the documented payload
+shape must match the bytes emitted.
 
 ### The catalog-conformance check
 
-ADR 0008 states the bar for the *catalog* emitter (`internal/wire/openits`):
-every ce-type it can produce must exist in the **pinned openits-models
-release's own** `asyncapi.yaml`, so a drift between what the collector
-claims to emit and what the upstream catalog defines is a CI failure, not a
-production surprise.
+[ADR 0008](../adr/0008-fixture-golden-testing-bar.md) sets the bar for the
+catalog emitter: every ce-type it can produce must exist in the **pinned
+openits-models release's own** `asyncapi.yaml`, so drift between what the
+collector emits and what the catalog defines fails CI.
 
-`internal/wire/openits/catalog_test.go` is that check. It locates the pinned
-release in the module cache (`go list -m`, so go.mod alone picks the
-version), reads its `bindings/nats/asyncapi.yaml`, and asserts both
-directions: `TestEmittedCETypesAreInPinnedCatalog` fails on a ce-type the
-emitter produces that the release does not declare, and
-`TestEveryCatalogCETypeIsMappedOrAllowlisted` fails on a declared ce-type the
-emitter neither maps nor lists in `unmapped` with a reason.
-`TestUnmappedAllowlistIsCurrent` keeps that allowlist honest: an entry that
-is now mapped, or that the release no longer declares, fails as stale.
+`internal/wire/openits/catalog_test.go` is that check. It finds the pinned
+release in the module cache (`go list -m`, so `go.mod` alone picks the
+version), reads its `bindings/nats/asyncapi.yaml`, and checks both
+directions. `TestEmittedCETypesAreInPinnedCatalog` fails on a ce-type the
+emitter produces that the release does not declare.
+`TestEveryCatalogCETypeIsMappedOrAllowlisted` fails on a declared ce-type
+the emitter neither maps nor lists, with a reason, in `unmapped`.
+`TestUnmappedAllowlistIsCurrent` fails on an allowlist entry that is now
+mapped or no longer declared.
 
-Do not read `TestGoldensCoverEveryCEType` (above) as part of this. It checks
-the emitter's goldens against the emitter's own routing table — that every
-mapped ce-type has a fixture — and says nothing about the catalog.
+`TestGoldensCoverEveryCEType` is not part of this. It checks the goldens
+against the emitter's own routing table and says nothing about the catalog.
 
 ## `-race`: because polling and publishing are concurrent
 
-`make check` runs the suite with Go's race detector attached — there is no
-separate non-race pass, because a race-enabled run proves strictly more. This
-matters here specifically because poll loops and the publisher are not
-incidentally concurrent — each configured device polls on its own timer in
-its own goroutine, and the publisher drains a shared event channel while
-new events keep arriving.
+`make check` runs the whole suite once, with the race detector on. There is
+no separate non-race pass, because a race-enabled run proves strictly more.
+Concurrency here is not incidental: each device polls on its own
+goroutine, and the publisher's drainer empties a shared queue while runners
+keep adding to it.
 
-**What `-race` proves:** for every goroutine interleaving that actually
-occurred during that run, no two goroutines touched the same memory without
-synchronization. A bug that only manifests under concurrent access (a
-snapshot mutated while being read, a map written from two goroutines) can
-pass every sequential test and still corrupt state or crash in the field —
-`-race` is aimed exactly at that class of bug.
+**What `-race` proves:** for every interleaving that actually happened
+during the run, no two goroutines touched the same memory without
+synchronisation. Bugs like a snapshot mutated while being read, or a map
+written from two goroutines, can pass every sequential test and still
+corrupt state in the field. `-race` is aimed at exactly those.
 
-**What it does not prove:** that no race exists. The race detector is
-*dynamic*, not static — it instruments and watches one actual execution,
-not the space of all possible ones. A race on a code path the test suite
-never exercises, or one that only occurs on an interleaving that didn't
-happen to occur this run, is invisible to it; nothing about a clean `-race`
-run rules out a schedule the next run (or production, under real load) does
-hit. A green `-race` pass is real evidence of a bug's absence, not a proof
-of one — which is also why it's worth re-running rather than trusting a
-single cached pass, and why concurrency-sensitive code still deserves
-reasoning about its synchronization, not just a green checkmark.
+**What it does not prove:** that no race exists. The detector is dynamic:
+it watches one execution, not every possible one. A race on a path the
+tests never run, or on an interleaving that did not occur this time, is
+invisible. A clean run is real evidence, not proof, which is why
+concurrency-sensitive code still deserves reasoning about its
+synchronisation.
 
 ## Doc guards: structural, not semantic
 
-`internal/docs` is a small package of tests, not production code, that keep
-specific documentation claims mechanically true. Its own package doc states
-the scope precisely: "Only STRUCTURAL claims are checked — a named enforcer
-that vanished, a config field that appeared, a subject address that
-drifted. Prose accuracy is a review problem and is deliberately not
-attempted here: a check that cannot fail on real decay is worse than no
-check, because it reads as coverage."
+`internal/docs` is a package of tests, not production code, that keeps
+specific documentation claims mechanically true. Its package doc sets the
+scope: "Only STRUCTURAL claims are checked — a named enforcer that
+vanished, a config field that appeared, a subject address that drifted.
+Prose accuracy is a review problem and is deliberately not attempted here."
 
-Four guards exist today. Three are Go tests in `internal/docs`, run by
-`go test`; the fourth is a shell script `make check` runs directly.
+There are four guards. Three are Go tests in `internal/docs`; the fourth is
+a shell script that `make check` runs.
 
 - `TestConfigReferenceDocumentsEveryField` — every `collector.yaml` field
   reachable by reflection over `config.Config` appears in
   `docs/reference/configuration.md`.
 - `TestInvariantsTableNamesRealEnforcers` — every enforcer named in
-  `docs/reference/invariants.md`'s table (a file path, a `Test...` function,
-  or a `make` target wired into `check`) actually exists somewhere in the
-  tree.
-- `TestAsyncAPIAddressesMatchRenderedSubjects` (plus two sibling tests in the
-  same file) — the example subject addresses in `asyncapi.yaml` render
-  correctly through the real `internal/subject.Template`.
-- `scripts/lint-docs.sh` — the one guard that is not a Go test, because
-  what it checks is not reachable by reflection: every relative markdown
-  link under `docs/`, in the root documents, in `.claude/skills/`, and in
-  the pull-request template resolves to a real file, and every `#fragment`
-  on a link to a local markdown file matches a real heading in it. It also
-  checks that each `SKILL.md` carries the sections the skill contract
-  requires. The anchor half is what makes the "link, don't restate"
-  discipline survivable: rules live in exactly one place and everything
-  else points at a heading in it, so a renamed heading would otherwise
-  quietly disconnect a rule from every document that cites it.
+  `docs/reference/invariants.md`'s table (a file path, a `Test...`
+  function, or a `make` target wired into `check`) actually exists.
+- `TestAsyncAPIAddressesMatchRenderedSubjects`, with two sibling tests in
+  the same file — the example subject addresses in `asyncapi.yaml` render
+  correctly through the real `internal/subject.Template`, and the `ce-source`
+  and `ce-id` descriptions match the code.
+- `scripts/lint-docs.sh` — every relative markdown link under `docs/`, in
+  the root documents, in `.claude/skills/`, and in the pull-request
+  template resolves to a real file, and every `#fragment` on such a link
+  matches a real heading. It also checks that each `SKILL.md` has the
+  sections the skill contract requires. The anchor check is what makes
+  "link, don't restate" workable: each rule lives in one place and
+  everything else links to its heading, so a renamed heading would
+  otherwise quietly disconnect a rule from every document that cites it.
+  `docs/specs/` is deliberately not scanned, because designs not yet built
+  may reference things that do not exist.
 
-  `docs/specs/` is deliberately outside its scan — a staging tier for
-  unbuilt designs is allowed to reference things that do not exist yet.
+**What doc guards prove:** a specific, named claim (a field exists, an
+enforcer exists, an address renders) is still true of the code. They turn
+"the docs might be stale" into "CI would have caught that".
 
-**What doc guards prove:** a specific, named thing a document asserts (a
-field exists, an enforcer exists, an address renders) is still true of the
-code today. They turn "the docs might be stale" into "CI would have caught
-that."
-
-**What they cannot prove — by design, not oversight:** that a claim is
-*relevant*, or that the prose around it is accurate. A doc guard checks
-existence and equality; it has no opinion on whether a still-existing
-enforcer is the *right* one for the rule, or whether a still-accurate field
-list is missing the one paragraph of context that would actually help a
-reader. That judgment is a review problem, on purpose — a check that could
-never fail on real decay would read as coverage without being coverage.
+**What they cannot prove, by design:** that a claim is relevant, or that
+the prose around it is accurate. A guard checks existence and equality. It
+has no opinion on whether a still-existing enforcer is the right one, or
+whether an accurate field list is missing the context a reader needs. That
+is a review problem, on purpose.
 
 ## Summary: what to reach for
 
 | Layer | Proves | Blind to |
 |---|---|---|
-| Golden tests | Encoding is stable; a change is visible as a diff | Whether the pinned mapping is semantically correct |
+| Golden tests | Encoding is stable; any change is visible as a diff | Whether the pinned mapping is correct |
 | Fixture replay | The adapter parses what it was handed | Whether what it was handed resembles a real device |
-| Differ tests | State transitions are correct, including the absence rule | Only for the facets that have a failed-read case (4 of 8) |
-| Conformance tests | Published shape matches an external contract | Only the contract the test actually loads — the openits check reads the pinned release's `asyncapi.yaml`, not openits-models' prose or JSON Schemas |
-| `-race` | No race occurred on the interleavings this run actually exercised | Races on paths not run, or interleavings that didn't happen to occur — it is dynamic, not exhaustive |
-| Doc guards | A specific structural claim still matches the code | Whether the claim is relevant, or the surrounding prose is accurate |
+| Differ tests | State transitions are correct, including the absence rule, for every registered differ | Facet kinds that do not exist yet |
+| Conformance tests | Published shape matches an external contract | Anything the loaded contract does not state; the catalog check reads the pinned `asyncapi.yaml`, not openits-models' prose or JSON Schemas |
+| `-race` | No race on the interleavings this run exercised | Paths not run, and interleavings that did not occur |
+| Doc guards | A specific structural claim still matches the code | Whether the claim is relevant, or the prose around it accurate |
 
-None of these layers is a substitute for another. A golden test cannot catch
-a semantically wrong mapping; a doc guard cannot catch stale prose; fixture
-replay cannot catch an invented fixture. Knowing which layer you're relying
-on — and which question it was never going to answer — is most of what
-"the tests pass" is worth telling you.
+No layer substitutes for another. A golden cannot catch a wrong mapping, a
+doc guard cannot catch stale prose, and fixture replay cannot catch an
+invented fixture. Knowing which layer you are relying on, and which
+question it was never going to answer, is most of what "the tests pass"
+can tell you.

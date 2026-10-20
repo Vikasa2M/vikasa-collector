@@ -1,6 +1,9 @@
 # ADR 0020: Broker absence is latency, not loss
 
-**Status:** Accepted (2026-10-12)
+**Status:** Accepted (2026-10-12). Implemented 2026-10-13 (`internal/publish`:
+background connect, bounded queue; synthesis held until state is seeded), so
+the known gaps its Consequences say close "when this is implemented" have
+closed.
 **Implements:** [ADR 0014](0014-config-is-the-trust-boundary.md)'s sanctioned
 broker-absent exception, and [ADR 0017](0017-durable-synth-state.md)'s "waits
 rather than starting stateless" clause.
@@ -56,6 +59,10 @@ costs data.**
    held snapshot is evidence of current state, not of the path taken to it;
    intermediate transitions during a long outage are lost, and ADR 0017's
    consumer contract already covers that residue.
+   [Note 2026-10-20: as implemented, nothing is kept while held —
+   `Engine.Apply` returns without diffing — and the first poll after seeding
+   is diffed against the seeded state. The outcome is the one stated here:
+   current state is reported once, intermediate transitions are lost.]
 
 3. **Publishing is queued, retried with backoff, and dropped only when the
    queue is full.** Encoded events go into a bounded in-memory FIFO. One

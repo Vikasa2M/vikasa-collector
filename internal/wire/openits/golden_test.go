@@ -2,6 +2,7 @@ package openits
 
 import (
 	"encoding/hex"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -436,10 +437,13 @@ func TestGoldensCoverEveryCEType(t *testing.T) {
 }
 
 // TestPrintGoldens regenerates the hex above. Run it with
-// -run TestPrintGoldens -v, and READ the decoded form it prints against each
-// fixture before pasting. It is a tool, not a test.
+// PRINT_GOLDENS=1 go test ./internal/wire/openits -run TestPrintGoldens -v,
+// and READ the decoded form it prints against each fixture before pasting.
+// It is a tool, not a test.
 func TestPrintGoldens(t *testing.T) {
-	t.Skip("generator; run explicitly with -run TestPrintGoldens")
+	if os.Getenv("PRINT_GOLDENS") == "" {
+		t.Skip("generator; set PRINT_GOLDENS=1 to run it")
+	}
 	for _, c := range goldenCases {
 		enc, ok, err := New("cabinet-poller-1").Encode(c.ev)
 		if err != nil || !ok {

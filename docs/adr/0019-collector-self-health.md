@@ -7,6 +7,8 @@ has none yet — DMS today, which shipped an adapter after this record assumed
 none would — keeps `openits-collector.health.device-status-changed.v1` as a
 fallback rather than losing reachability, and the fallback shrinks as
 upstream fans comm-health out (see "One upstream gap" below).
+Implemented 2026-10-14 (heartbeat, `started`/`stopping`, `instance.log`,
+adapter-panic attribution, comm-health mapping).
 **Amends:** [ADR 0007](0007-collector-owned-health-schema.md) — adds to the
 collector-owned health schema it established, and changes how device-less
 events render their subject.
@@ -105,6 +107,9 @@ cabinet nobody can visit:
 | `:155` | an event was dropped: no ce-source entity kind |
 | `:169` | a publish failed after all three attempts |
 | `:179` | an event was dropped: no emitter claimed it |
+
+[Note 2026-10-20: these line numbers are as of the 2026-08-23 proposal and no
+longer match `internal/app/app.go`.]
 
 And one it does not merely fail to publish but actively misattributes: an
 adapter panic, recovered by `readGuarded` (`internal/runner/runner.go`), is

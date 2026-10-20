@@ -1,33 +1,24 @@
 # Invariants
 
-Four architectural rules used to be restated 28 times across 14 files, and
-most of the copies drifted from what the code actually does. **This is the
-document that states an enforced rule canonically** — the row here is the
-one that is kept true, and the one CI checks. If you find yourself about to
-write "never import openits-models outside internal/wire" anywhere but this
-file, link this file instead.
-
-`AGENTS.md`, `CONTRIBUTING.md`, `README.md`,
-`.github/pull_request_template.md`, and every `.claude/skills/*/SKILL.md`
-no longer restate any rule's wording — each place that used to state a
-rule now links the row below instead.
+The rules CI enforces, stated once. **This file is the canonical wording**:
+each row below is the version that is kept true and checked. Anywhere else
+that needs a rule links its section here instead of restating it, so
+copies cannot drift from the code.
 
 `docs/tutorial/` is the one deliberate exception. A tutorial that only
-linked out at the moment a rule matters would fail its own job, so it
-states the rule it is teaching in place and links the row here for the
-canonical wording — the teaching copy is a paraphrase, this file is what
-is kept true, and the tutorial says so where it does it.
+linked out at the moment a rule matters would fail its job, so it states
+the rule it is teaching in its own words and links here for the canonical
+wording.
 
-Each row names an **enforcer**: something that actually fails if the rule
-is broken, not just a place the rule is written down. `internal/docs`'s
-`TestInvariantsTableNamesRealEnforcers` parses this table on every `go
-test ./...` run and fails if a named enforcer doesn't exist — a path that's
-gone missing, or a `Test...` function nobody can find. That test cannot
-check that an enforcer actually *enforces* the rule (that's a review
-problem), but it can and does check that the table isn't naming ghosts.
-
-A rule with no automated enforcer is marked `Review (manual)` rather than
-left blank, so the gap is visible instead of implied.
+Each row names an **enforcer**: something that actually fails when the
+rule is broken, not just a place the rule is written down.
+`TestInvariantsTableNamesRealEnforcers` (`internal/docs`) parses this table
+on every `go test ./...` and fails if a named enforcer does not exist — a
+path that has gone missing, a `Test...` function nobody defines, or a
+`make` target that is not a prerequisite of `make check`. It cannot tell
+whether an enforcer actually *enforces* the rule; that is a review
+question. A rule with no automated enforcer is marked `Review (manual)`,
+so the gap is visible rather than implied.
 
 | Rule | Decided by | Enforced by |
 |---|---|---|
@@ -36,11 +27,17 @@ left blank, so the gap is visible instead of implied.
 | The openits-models pin names a release tag | ADR 0018 | `scripts/lint-boundary.sh` |
 | The pinned release is a current one, not an old tag | ADR 0018 | Review (manual) |
 | Absence of evidence is never a state change | ADR 0013 | `internal/synth/synth.go`, `TestFailedFacetSuspendsDiffing`, `TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`, `TestDMSFailedReadEmitsNothing`, `TestDMSEnvFailedReadEmitsNothing`, `TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure`, `TestZoneIncidentFailedReadNeitherClearsNorRedetects`, `TestTrafficIntervalFailedReadDoesNotDuplicateTheReport`, `TestZoneIntervalFailedReadDoesNotDuplicateTheReport` |
-| Config is the trust boundary; boot fails on the unrecognized | ADR 0014 | `internal/config` |
+| Config is the trust boundary; boot fails on the unrecognized | ADR 0014 | `internal/config`, `TestRunExitCodes` |
+| The broker credential comes from a file, never the URL | ADR 0022 | `internal/publish/security.go`, `TestValidateSecurity`, `TestCredentialsInTheURLAreRefusedUnlogged`, `TestStartErrorNeverContainsCredentials` |
+| Plaintext NATS only on loopback; TLS is always verified | ADR 0022 | `TestValidateSecurity`, `TestTLSBrokerIsVerifiedAgainstTheNamedCA` |
+| The documented least-privilege broker grant is sufficient | ADR 0022 | `TestLeastPrivilegeGrantIsSufficient` |
+| The management surface answers only on loopback | ADR 0022 | `TestValidateAddrIsLoopbackOnly`, `TestOnlyLoopbackHostHeadersAreServed`, `TestRunRejectsNonLoopbackStatusAddr` |
 | Subjects are operator-configurable; the CloudEvents envelope stays canonical | ADR 0009, ADR 0011, ADR 0015 | `internal/subject`, `internal/cloudevents`, `internal/config` |
 | openits-models is not reshaped to suit the collector | ADR 0016 | Review (manual) |
 | Every mapped ce-type has a byte-exact golden | ADR 0008 | `internal/wire/openits/golden_test.go` |
-| No fixtures, no merge | ADR 0008 | Review (manual) — automated by the conformance kit in successor A |
+| The catalog stream passes the openits-models Tier 2 harness | openits-models NATS profile; ADR 0011 | `TestCollectorStreamPassesTheTier2Harness` |
+| `asyncapi.yaml` documents exactly the collector-owned ce-types | ADR 0007 | `TestAsyncAPICoversEveryEmittedType`, `TestAsyncAPIDocumentsNothingUnemittable`, `TestAsyncAPIAddressesMatchRenderedSubjects` |
+| No fixtures, no merge | ADR 0008 | Review (manual) — no fixture recorder exists yet |
 | Every guard must be shown to fail | Practice (no ADR; promoted here) | `make lint-boundary-selftest`, `make lint-boundary-replace-selftest`, `make lint-boundary-tag-selftest` |
 
 ## Adapters and `sdk/` never import openits-models
@@ -143,29 +140,98 @@ failed read fails all four.
 
 Decided by [ADR 0014](../adr/0014-config-is-the-trust-boundary.md).
 
-Violating this looks like a bad `collector.yaml` value that gets accepted
-at boot and surfaces later as an unroutable event, mislabeled provenance,
-or silently wrong data discovered downstream — instead of a boot failure
-at the moment the mistake was made. `internal/config`'s `Config.validate`
-rejects an unknown vendor/device-kind, tenant tokens that would corrupt
-subject grammar or the source URN, a subject template that can never yield
-a static stream binding, a malformed `collector_id`, a
-`model_version` outside `wire.SupportedModelVersions`, zero devices, a duplicate or missing device ID, and a
-negative `poll_interval`. Before any of that, `config.Load` decodes
-strictly: an unknown key anywhere outside a device's `connection` block —
-a misspelled `poll_interval` would otherwise poll at the default — or a
-second YAML document fails boot. The `connection` block is opaque to the
-core, so each adapter enforces the same rule on its own keys; `ntcip`'s
-`parseSNMPBlock` (`internal/vendors/ntcip/register.go`) rejects unknown
-keys and known keys of the wrong type.
+Violating this looks like a bad `collector.yaml` value that is accepted at
+boot and surfaces later as an unroutable event, mislabelled provenance, or
+silently wrong data downstream — instead of a boot failure at the moment
+the mistake was made.
 
-ADR 0014 names one sanctioned exception — tolerating an absent broker at
-startup as transient rather than a config error — and
+`config.Load` decodes strictly: an unknown key anywhere outside a device's
+`connection` block, or a second YAML document, fails boot (a misspelled
+`poll_interval` would otherwise poll at the default). `Config.validate`
+then rejects tenant tokens that would corrupt subject grammar or the
+`ce-source` URN, a `heartbeat_interval` under 10s, an unknown
+`log_ship_level`, a `model_version` outside `wire.SupportedModelVersions`,
+a malformed `collector_id`, a subject template that can never yield a
+static stream binding, zero devices, a missing or duplicate device id, an
+unregistered vendor/device-kind pair, and a negative `poll_interval`. At
+the start of `app.Run`, every ce-type is rendered for every device through
+the subject template and must land inside its stream's binding. The
+`connection` block is opaque to the core, so each adapter applies the same
+rule to its own keys: `ntcip`'s `parseSNMPBlock`
+(`internal/vendors/ntcip/register.go`) rejects unknown keys and known keys
+of the wrong type. [The configuration
+reference](configuration.md#fields) lists every check.
+
+The command line is held to the same rule: an unknown flag or an
+unrecognized flag value is a usage error, exit code 2, never a silent
+default (`TestRunExitCodes`, `cmd/collector/run_test.go`).
+
+ADR 0014 names one sanctioned exception — an absent broker at startup is
+transient, not a config error — and
 [ADR 0020](../adr/0020-broker-absence-is-latency.md) implements it:
 `publish.Start` (`internal/publish/publish.go`) connects in the background
 and never fails on an absent broker, so the collector boots, polls, and
-queues until NATS appears (`TestRunBootsWithoutABrokerAndPublishesWhenOneArrives`).
-Bad config still fails hard; only the missing peer waits.
+queues until NATS appears
+(`TestRunBootsWithoutABrokerAndPublishesWhenOneArrives`). Bad config
+still fails hard; only the missing peer is waited for.
+
+## The broker credential comes from a file, never the URL
+
+Decided by [ADR 0022](../adr/0022-transport-security-and-credentials.md),
+decision 1.
+
+Violating this looks like a `-nats` URL carrying `user:pass@` or a bare
+`token@` — a secret then visible in the process table, shell history and
+unit files, and quoted back in parser errors. `ValidateSecurity`
+(`internal/publish/security.go`) refuses any URL with userinfo at boot
+(exit code 2); the only way to pass a credential is `-nats-creds`, a NATS
+`.creds` file that must grant nothing to other users. `TestValidateSecurity`
+covers each case and checks no error message repeats the secret;
+`TestCredentialsInTheURLAreRefusedUnlogged` and
+`TestStartErrorNeverContainsCredentials` check the same for logs and
+`publish.Start`'s errors.
+
+## Plaintext NATS only on loopback; TLS is always verified
+
+Decided by [ADR 0022](../adr/0022-transport-security-and-credentials.md),
+decision 2.
+
+Violating this looks like the collector publishing in plaintext to a broker
+on another host, or accepting a TLS broker without verifying its
+certificate. `ValidateSecurity` refuses a non-loopback `-nats` that is not
+`tls://` at boot (`TestValidateSecurity`), and no flag skips verification:
+the broker is checked against `-nats-ca` or, without it, the system roots
+(`TestTLSBrokerIsVerifiedAgainstTheNamedCA`).
+
+## The documented least-privilege broker grant is sufficient
+
+Decided by [ADR 0022](../adr/0022-transport-security-and-credentials.md),
+decision 3.
+
+Violating this looks like a collector change that needs a broker permission
+the [deploy guide](../how-to/deploy-a-collector.md)'s grant does not
+include — a new subject, stream or bucket — so a correctly configured
+cabinet starts failing with permission errors.
+`TestLeastPrivilegeGrantIsSufficient` (`internal/app/permissions_test.go`)
+runs the collector against a broker that grants only that set, and fails
+on any permission violation while it provisions and writes both streams
+and creates, loads and writes the `VIKASA_SYNTH_STATE` bucket.
+
+The test holds its own copy of the grant. Keeping that copy identical to
+the deploy guide's is a review step; nothing compares the two.
+
+## The management surface answers only on loopback
+
+Decided by [ADR 0022](../adr/0022-transport-security-and-credentials.md),
+decision 6.
+
+The surface (`/livez`, `/readyz`, `/status`) is unauthenticated by design.
+Violating this looks like it being reachable from the cabinet network, or
+from a web page through DNS rebinding. `manage.ValidateAddr` refuses a
+non-loopback `-status-addr` at boot (`TestValidateAddrIsLoopbackOnly`,
+`TestRunRejectsNonLoopbackStatusAddr`), and the handler answers `421` to
+any request whose `Host` is not `localhost` or a loopback IP
+(`TestOnlyLoopbackHostHeadersAreServed`).
 
 ## Subjects are operator-configurable; the CloudEvents envelope stays canonical
 
@@ -173,38 +239,33 @@ Decided by [ADR 0009](../adr/0009-configurable-subject-templates.md),
 [ADR 0011](../adr/0011-namespace-rooted-subject-spaces.md), and
 [ADR 0015](../adr/0015-ce-source-urn-scheme.md).
 
-Violating this looks like deriving `ce-type`, `ce-source`, or `ce-id` from
+Violating this looks like deriving `ce-type`, `ce-source` or `ce-id` from
 the operator's subject template, or deriving the subject from the
-envelope — either direction collapses two things that are deliberately
-independent. Subject grammar belongs to the operator: agencies fit the
-collector into namespaces they already own (`internal/subject`, template
-validated by `Config.validate`). The envelope stays canonical regardless
-of local routing choices: `ce-type` is catalog-verbatim, `ce-source` is the
-fixed profile URN `urn:openits:<entity-kind>:<region>:<agency>:<agency_unit>:<id>`
-built by `SourceFor`, and `ce-id` is deterministic — built in
-`internal/cloudevents`. The `ce-id` derivation itself is openits-models'
-contract, not this repo's; see its `ce-id-spec.md`. Deterministic does not
-mean "a bare content hash."
+envelope. Either direction collapses two things that are deliberately
+independent. Subject grammar belongs to the operator, so agencies can fit
+the collector into namespaces they already own (`internal/subject`,
+validated at boot). The envelope stays canonical whatever the local
+routing: `ce-type` is catalog-verbatim, `ce-source` is the fixed profile
+URN `urn:openits:<entity-kind>:<region>:<agency>:<agency_unit>:<id>` built
+by `SourceFor`, and `ce-id` is deterministic (`internal/cloudevents`). The
+`ce-id` derivation is openits-models' contract, defined in its
+`ce-id-spec.md`; deterministic does not mean "a bare content hash."
 
-**This is architectural separation as of today, not a regression-tested
-boundary.** `internal/subject` and `internal/cloudevents` genuinely do not
-import each other, but nothing scans the import graph or the code shape to
-keep it that way — contrast the row above, where the lint scans the whole
-import graph for future violations, or the absence-of-evidence row, where
-the shared `Apply` loop makes a violation structurally impossible. A future
-PR that derived `ce-source` from a rendered subject string, or vice versa,
-would pass every check in this repo today. One real, narrower choke point
-does exist and is worth citing precisely rather than folding into a vague
-"internal/subject" claim: `internal/subject/subject.go`'s own comment
-states that `config.Load` is "the authoritative gate" for token
-strictness — `subject.New` deliberately only enforces the permissive
-NATS-subject character rule and relies on `Config.validate` having already
-run `cloudevents.Tenant.Validate()`'s stricter `^[a-z0-9][a-z0-9-]*$` check
-first, so a `*config.Config` that bypassed `config.Load` could reach
-`subject.New` with a value legal for the subject but unparseable in the
-URN. `internal/config` is cited above for exactly that reason: it is the
-one place today that actually closes that specific gap, not a stand-in for
-enforcing the broader "never derive one from the other" rule.
+**This separation is architectural, not regression-tested.**
+`internal/subject` and `internal/cloudevents` do not import each other, but
+nothing scans the import graph or the code to keep it that way. A PR that
+derived `ce-source` from a rendered subject, or the reverse, would pass
+every check in this repo today.
+
+The enforcers named in the table cover one narrower point. `subject.New`
+enforces only the permissive NATS-token rule (no `.`, `*`, `>` or
+whitespace) and relies on `config.Load` having already run
+`cloudevents.Tenant.Validate`'s stricter `^[a-z0-9][a-z0-9-]*$`. A
+`*config.Config` built without `config.Load` could therefore reach
+`subject.New` with a value that is a legal subject token but breaks the
+URN. `internal/config` is cited because it is the gate that closes that
+gap — not as an enforcer of the broader "never derive one from the other"
+rule.
 
 ## openits-models is not reshaped to suit the collector
 
@@ -262,55 +323,97 @@ directions, with an `unmapped` allowlist (each entry carrying a reason) for
 catalog ce-types the emitter consciously does not produce. See
 [`testing-strategy.md`'s catalog-conformance section](../explanation/testing-strategy.md#the-catalog-conformance-check).
 
+## The catalog stream passes the openits-models Tier 2 harness
+
+Decided by openits-models' NATS reference profile, whose Tier 2 is the
+envelope-and-subject conformance level; the collector targets it
+([ADR 0011](../adr/0011-namespace-rooted-subject-spaces.md) is why
+collector-owned events sit on their own root, outside what the harness
+judges).
+
+Violating this looks like catalog events that encode correctly but break
+the profile's envelope or subject rules — a subject outside the seven-token
+`openits.` shape, a malformed ce-type or `ce-source` URN, a missing
+`ce-id`, or a per-service event shape the harness checks for signal control
+and DMS. `TestCollectorStreamPassesTheTier2Harness`
+(`internal/wire/tier2`) runs the real collector against an embedded
+`nats-server`, with scripted signal-controller and sign devices, and runs
+openits-models' own Tier 2 checks (`tools/conformance/tests`, imported
+from the pinned release rather than transcribed) over everything published
+on `openits.>`. It runs on every `go test ./...` and needs no network or
+external broker. It judges headers and subjects, not payload bytes — those
+are locked by the goldens above. The test names each harness check it runs,
+and fails if the pinned release no longer has one.
+
+## `asyncapi.yaml` documents exactly the collector-owned ce-types
+
+Decided by [ADR 0007](../adr/0007-collector-owned-health-schema.md).
+
+The collector-owned `openits-collector.*` events are defined here, not in
+openits-models, so this repo's [`asyncapi.yaml`](../../asyncapi.yaml) is
+their only contract. Violating this looks like the file and the emitter
+disagreeing: a ce-type emitted but undocumented, a documented one nothing
+emits, a payload key that differs from the bytes on the wire, or an
+address that is not what the default template renders.
+`TestAsyncAPICoversEveryEmittedType` and
+`TestAsyncAPIDocumentsNothingUnemittable`
+(`internal/wire/health/conformance_test.go`) check the first three in both
+directions; `TestAsyncAPIAddressesMatchRenderedSubjects`
+(`internal/docs/asyncapi_test.go`) checks the addresses.
+
 ## No fixtures, no merge
 
 Decided by [ADR 0008](../adr/0008-fixture-golden-testing-bar.md).
 
-Violating this looks like an adapter PR landing with hand-typed fixtures
-instead of recorded raw transport responses — which is, today, the actual
-state of the collector's one adapter (`ntcip-asc`'s `healthyFixture` is a
-hand-written `map[string]int64`, not a captured recording; see its own
-doc comment on the alarm bitmap for why that is a real gap, not a
-formality). There is no automated check for this today — it is enforced
-by PR review, marked `Review (manual)` above rather than left blank. A
-recording tool and conformance kit are tracked as successor A's work; once
-it exists, this row's enforcer cell should name it instead of `Review
-(manual)`.
+An adapter's read-path tests replay recorded raw transport responses from a
+real device. Violating this looks like an adapter PR whose fixtures were
+typed by hand from a specification rather than captured from a device, so
+the tests prove the adapter agrees with its author, not with the hardware.
+
+The two adapters show both sides. `ntcip-dms`'s fixtures are transcribed
+from SNMP GETs against a real sign controller, and its test file says which
+one and when. `ntcip-asc`'s `healthyFixture`
+(`internal/vendors/ntcip/asc_test.go`) is a hand-typed
+`map[string]int64`, and the adapter's own doc comment says its alarm-bitmap
+table has never been validated against a physical controller — a tracked
+[known gap](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state),
+not a precedent.
+
+No tool in the repo records a device session, so nothing can check
+provenance automatically: this is enforced in PR review, and marked
+`Review (manual)`. When a fixture recorder exists, this row's enforcer
+should name it.
 
 ## Every guard must be shown to fail
 
-Decided by: no ADR names this rule; it was invoked by name ("the standing
-rule") in a design spec that cited nothing, and promoted here rather than
-left homeless when that spec was retired.
+Decided by practice, not an ADR: a rule this project follows by name, kept
+here so it has a canonical home.
 
-The rule: a validation or lint that has only ever been observed to pass is
-indistinguishable from one that can never fail — a check that has never
-been seen to catch anything is not known to be a check. Violating this
-looks like adding a guard (a lint rule, a boot-time validation) and never
-writing the test that deliberately trips it, so a future refactor could
-silently defang the guard and nothing would notice.
+A check that has only ever been seen to pass is indistinguishable from one
+that can never fail. Violating this looks like adding a guard — a lint
+rule, a boot-time validation, a conformance test — without a test that
+deliberately trips it, so a later refactor can silently defang the guard.
 
-The enforcers are the two Makefile targets themselves, not
-`scripts/lint-boundary.sh` — the script is the thing *under test* by these
-targets, and citing it here would mean the cell kept passing even if both
-targets were deleted, so long as the script file still existed. That is
-exactly the failure mode this row exists to catch, so the row names the
-actual guards-of-the-guard: `make lint-boundary-selftest` points Rule A at
-`gosnmp`, a dependency `sdk/` genuinely has, and fails the build unless the
-lint flags it; `make lint-boundary-replace-selftest` points Rule C at a
-throwaway `go.mod` fixture that does carry a `replace` directive, and
-fails the build unless the lint flags that too. Neither selftest accepts a
-bare nonzero exit as proof — `lint-boundary.sh` exits 2 on a broken `go
-list` or an unreadable `LINT_GOMOD`, which would otherwise read as "the
-rule fires" — so each greps the output for its own rule's violation
-message and fails if the lint failed for any other reason.
+For a validation or a Go test, the tripping test lives beside it: each
+boot check has a case that feeds it a bad value, and the failed-read tests
+under [absence of evidence](#absence-of-evidence-is-never-a-state-change)
+pick recovery polls that a forgetful engine would get wrong. For the
+boundary lint, the guards-of-the-guard are three Makefile targets, each a
+prerequisite of `make check`:
 
-Both are wired into `check:` in the Makefile and run as part of `make
-check`, alongside the lint itself. `TestInvariantsTableNamesRealEnforcers`
-verifies that wiring, not just that the targets are defined: removing
-either one from `check:`'s prerequisite list fails the test, because a
-guard CI never runs is exactly as unenforced as a guard that does not
-exist. Both work by pointing the *same* rule at `scripts/lint-boundary.sh`'s
-`LINT_FORBIDDEN`/`LINT_GOMOD` override hooks and a fixture guaranteed to
-violate it — the script is the mechanism the targets exercise, not the
-enforcer of this row's rule.
+- `make lint-boundary-selftest` points Rule A at `gosnmp`, a dependency
+  `sdk/` genuinely has, and fails unless the lint flags it;
+- `make lint-boundary-replace-selftest` points Rule C at a throwaway
+  `go.mod` that carries a `replace` directive;
+- `make lint-boundary-tag-selftest` points Rule D at a `go.mod` pinning
+  the exact pseudo-version this repo once carried.
+
+None accepts a bare nonzero exit as proof: `lint-boundary.sh` also exits
+non-zero when `go list` fails or `LINT_GOMOD` is unreadable, so each target
+greps for its own rule's violation message and fails if the lint failed for
+any other reason. All three drive the script through its
+`LINT_FORBIDDEN`/`LINT_GOMOD` override hooks; the script is what they
+test, so the row names the targets, not the script.
+`TestInvariantsTableNamesRealEnforcers` checks that each named target is
+still wired into `check:`, because a guard CI never runs is as unenforced
+as one that does not exist.

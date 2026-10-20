@@ -1,6 +1,16 @@
 # ADR 0012: Host-executed updates; the collector participates but never updates itself
 
 **Status:** Accepted (2026-08-09)
+[Note 2026-10-20 — implementation status. Of the three ways the collector
+participates: (1) it reports its version on `openits-collector.instance.started.v1`
+and on every heartbeat ([ADR 0019](0019-collector-self-health.md)); the event the
+Decision calls `CollectorStarted` is now `health.Started` in
+`internal/wire/health/instance.go`. (2) The readiness signal is built:
+`/readyz` on the loopback management surface (`internal/manage`). (3) Being
+told an expected version and reporting drift is **not implemented**; ADR 0019
+clauses 11 and 13 have the collector report what it runs and leave
+running-versus-expected comparison to the hub. The fleet control plane is
+not built in this repository.]
 
 ## Context
 The first operator is a statewide DOT running 10,000–15,000 cabinets. Cabinets

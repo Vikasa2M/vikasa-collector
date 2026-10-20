@@ -1,5 +1,7 @@
-// Package health encodes health events in the collector-owned schema
-// (ADR 0007): ce-types openits-collector.health.*.v1, JSON bodies.
+// Package health encodes the collector-owned schema (ADR 0007), JSON bodies:
+// the collector's own lifecycle events, openits-collector.instance.*.v1
+// (ADR 0019), and openits-collector.health.device-status-changed.v1 for the
+// device kinds whose catalog service has no comm-health channel.
 package health
 
 import (

@@ -12,6 +12,10 @@ scheme byte-for-byte" is stale: omitting the config today yields ADR 0011's
 namespace-rooted grammar (`internal/subject`'s `DefaultTemplate`). The
 decision that grammar is the *operator's* stands; only the default it shipped
 with was replaced. Body left as written per the immutability convention.
+[Note 2026-10-20: the Consequences' "`{device_id}` is reserved but
+unsupported" is also stale. ADR 0011's default grammar uses `{device_id}`,
+and [ADR 0019](0019-collector-self-health.md) clause 2 renders it as `site`
+for device-less events (`internal/subject/subject.go`).]
 
 ## Context
 ADR 0006 fixed the subject grammar at

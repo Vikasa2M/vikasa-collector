@@ -1,6 +1,14 @@
 # ADR 0007: Collector-owned health event schema
 
 **Status:** Accepted (2026-07-12)
+Amended by [ADR 0019](0019-collector-self-health.md) (accepted 2026-10-12,
+itself amended 2026-10-14): the collector's own health now uses
+`openits-collector.instance.*.v1` ce-types rather than `health.*`, and device
+reachability moved to the catalog's `<service>.comm-health-event`, keeping
+`openits-collector.health.device-status-changed.v1` only as a fallback for
+device kinds whose service lacks that channel. This record's guarantee — a
+collector-owned schema that upstream churn cannot break — now covers the
+collector's own health. The body below stands as written.
 
 ## Context
 Device reachability, poll failures, and collector self-health must be

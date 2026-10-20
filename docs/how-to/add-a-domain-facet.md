@@ -1,26 +1,32 @@
 # Add a domain facet
 
-This is the guide for adding a new concept to the domain model: a kind of
-device state nothing in `sdk/model` represents yet. If you already know
-which facet you need and just want to get a device onto the bus, you
-probably want
-[`add-a-vendor-adapter.md`](add-a-vendor-adapter.md#choose-the-device-kind-and-check-for-an-existing-facet)
-instead — most adapter work reuses an existing facet, and that document's
-starter-tasks table names five facets that are modeled and diffed with no
-adapter producing them yet.
+**At the end** you will have a new concept in the domain model — a kind of
+device state nothing in `sdk/model` represents yet — as a facet, the events
+it produces, and a differ that turns one into the other, with the differ
+tests a reviewer expects. Mapping those events onto the wire is the next
+guide, [`map-an-event-to-the-wire.md`](map-an-event-to-the-wire.md).
 
-Read [`docs/explanation/adapter-to-model.md`](../explanation/adapter-to-model.md)
-first. It covers the conceptual shape a facet, a differ, and the
-present/absent/empty distinction all have to respect — this document
-assumes that reading and stays procedural: which files a new concept
-touches, in what order, and what a reviewer will hold it to.
+**Check first that you need one.** Most adapter work reuses an existing
+facet, and several are modeled and diffed with no adapter producing them
+yet — see
+[`add-a-vendor-adapter.md`](add-a-vendor-adapter.md#choose-the-device-kind-and-check-for-an-existing-facet).
 
-A new concept lands in three parts, always in this order: a **facet**
-(`sdk/model`, what a device's state looks like at one poll), a **differ**
-(`internal/synth`, how consecutive facets become events), and **events**
-(`sdk/model/events.go`, the discrete occurrences the differ emits). The DMS
-domain is the worked example throughout: facet in `sdk/model/dms.go`,
-events in `sdk/model/events.go`, differ in `internal/synth/dms.go`.
+**You need** [`adapter-to-model.md`](../explanation/adapter-to-model.md)
+read. It covers the shape a facet and differ must respect, including the
+present/absent/empty distinction; this guide stays procedural.
+
+The DMS domain is the worked example throughout: facet in
+`sdk/model/dms.go`, events in `sdk/model/events.go`, differ in
+`internal/synth/dms.go`. The steps, in order:
+
+1. [Define the facet](#facet-sdkmodeldomaingo) in `sdk/model/<domain>.go`.
+2. [Define its events](#events-sdkmodeleventsgo) in `sdk/model/events.go`.
+3. [Write the differ](#differ-internalsynthdomaingo) in
+   `internal/synth/<domain>.go` and register it in `internal/app/app.go`.
+4. [Write the differ tests](#tests).
+5. [Map the events to the wire](#the-ripple-your-new-facet-usually-needs-a-wire-mapping-too),
+   usually as a follow-up.
+6. [Verify](#verify).
 
 ## Facet (`sdk/model/<domain>.go`)
 
@@ -61,31 +67,29 @@ add one:
   no way to route a shared event to the right one.
 - **Prefer transition events over bare state reports.** `DMSControlModeChanged`
   and `DMSDisplayStateChanged` (`sdk/model/events.go`) carry `From`/`To`
-  and fire only when the differ observes a change. A periodic report is a
-  different, deliberate shape — `OperationalStatusReport` is emitted every
-  poll by design, not produced by diffing anything — so don't reach for it
-  unless your domain genuinely has no transition to report. Periodic state
-  reports are the exception upstream: 8 of the catalog's 10 services have no
-  status-report ce-type at all, so for most domains there is nothing to map a
-  per-poll report onto even if you wrote one.
-
-  An absence there is not a gap the collector gets to fill on its own
-  behalf — see
+  and fire only when the differ observes a change. A periodic report
+  (`OperationalStatusReport`, emitted every poll) is a different,
+  deliberate shape: only add one when the catalog defines a status-report
+  ce-type for your service, because otherwise there is nothing to map it
+  onto. Most catalog services have none, and the collector does not get to
+  invent one — see
   [openits-models is not reshaped to suit the collector](../reference/invariants.md#openits-models-is-not-reshaped-to-suit-the-collector).
-  `internal/synth/dms.go`'s doc comment works the example through: no periodic
-  DMS report exists, so a restarted collector doesn't re-announce a sign's
-  state until it next changes, and the answer to that is
-  [ADR 0017](../adr/0017-durable-synth-state.md)'s durable previous-state —
-  not inventing a transition that did not happen.
+
+  `internal/synth/dms.go`'s doc comment works through the consequence: the
+  DMS status facet emits on transitions only, so a restarted collector does
+  not re-announce a sign's state until it next changes. The answer to that
+  is [ADR 0017](../adr/0017-durable-synth-state.md)'s durable previous
+  state, not inventing a transition that did not happen.
 
 ## Differ (`internal/synth/<domain>.go`)
 
 A differ implements `synth.Differ`
-(`Facet() model.Facet` — the zero value of the one facet type it diffs, from which the engine takes its kind — and `Diff(prev, curr model.Facet, base model.Base) []model.Event`,
-`internal/synth/synth.go`) and gets registered as one of the
-`synth.NewEngine(...)` arguments in `internal/app/app.go` — see that
-constructor call for the full list of differs the collector currently
-wires in.
+(`internal/synth/synth.go`): `Facet() model.Facet` returns the zero value
+of the one facet type it diffs, from which the engine takes its kind, and
+`Diff(prev, curr model.Facet, base model.Base) []model.Event` does the
+work. Register it by adding its constructor to the `synth.NewEngine(...)`
+call in `internal/app/app.go`, which lists every differ the collector
+runs.
 
 - `prev == nil` means first observation: there is no known prior state to
   transition from, so a differ observing DMS's shape returns no events on
@@ -125,6 +129,15 @@ tests (proving an adapter actually produces the facet you defined) live
 with the adapter, not with the differ; see
 [`add-a-vendor-adapter.md`](add-a-vendor-adapter.md) for that side.
 
+Your differ's previous state survives restarts in the `VIKASA_SYNTH_STATE`
+bucket ([ADR 0017](../adr/0017-durable-synth-state.md)), stored as the
+facet's JSON. Add the new facet to
+`TestDecodeFacetRoundTripsEveryDurableKind` (`internal/synth/durable_test.go`)
+so a restart is proven to read back exactly what was written. A facet that
+changes on every poll, like detector counters, would wear the broker's
+storage for nothing: give its differ a `Volatile() bool` method returning
+true, as `internal/synth/detector.go` does, and it is never persisted.
+
 ## The ripple: your new facet usually needs a wire mapping too
 
 A facet and differ with no wire mapping is a legitimate, working interim
@@ -142,16 +155,13 @@ subject.
 
 ```bash
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-`make check` runs `go vet`, golangci-lint, the full test suite under the race
-detector, and `scripts/lint-boundary.sh` — the same gate CI runs. A facet or differ
-change never needs to touch `internal/wire` or import openits-models, so
-if the boundary lint flags your change, that's a sign the concept belongs
-somewhere else in the layering, not a lint false positive. The race detector
-matters here specifically because `synth.Engine.Apply` is called from the
-poll loop, which runs one goroutine per device concurrently — see
-[`docs/explanation/testing-strategy.md`'s `-race` section](../explanation/testing-strategy.md#-race-because-polling-and-publishing-are-concurrent).
-`gofmt -l .` should print nothing.
+This is the CI gate: `go vet`, golangci-lint (gofmt included), the
+go.mod tidiness check, the whole suite under `-race`, and the boundary and
+docs lints. A facet or differ change never touches `internal/wire` or
+imports openits-models, so if the boundary lint flags your change, the
+concept belongs somewhere else in the layering. `-race` matters here
+because `synth.Engine.Apply` is called from every device's poll goroutine
+— see
+[`testing-strategy.md`'s `-race` section](../explanation/testing-strategy.md#-race-because-polling-and-publishing-are-concurrent).

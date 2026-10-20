@@ -30,14 +30,17 @@ It does not apply to:
 
 ## Procedure
 
-1. Read `internal/vendors/ntcip/asc.go` and `register.go` as the
-   structural reference — but not for fixture provenance or the
-   alarm-bitmap table; both are known, tracked gaps in that adapter (see
-   the canonical doc's "Before you start" section).
-2. Confirm the facet you need already exists — `docs/reference/starter-tasks.md`
-   lists five facets that are modeled and diffed with no adapter producing
-   them yet. If your device needs a concept no facet models, stop: that's
-   a separate `add-domain-facet` contribution, its own PR.
+1. Read `internal/vendors/ntcip/` as the structural reference:
+   `register.go` for registration and strict connection parsing, `asc.go`
+   and `dms.go` for the read. Do not copy `asc.go`'s fixture provenance or
+   its alarm-bitmap table; both are known gaps (see the canonical doc's
+   "Before you start" section). `dms_test.go`'s fixtures, transcribed from
+   a live controller with a provenance comment, are the better model.
+2. Confirm the facet you need already exists in `sdk/model` —
+   `docs/reference/starter-tasks.md` lists the facets that are modeled and
+   diffed with no adapter producing them yet. If your device needs a
+   concept no facet models, stop: that's a separate `add-domain-facet`
+   contribution, its own PR.
 3. Implement `StateReader` (`sdk/adapter/adapter.go`) and set
    `Caps: adapter.CapState` — every adapter is pull-driven (ADR 0004: the
    runner calls `Read`, nothing an adapter does calls back into the core).
@@ -63,9 +66,11 @@ It does not apply to:
    a substitute for handling a malformed reading yourself.
 6. Set `Descriptor.Caps` to exactly the interfaces your type implements —
    nothing claimed that isn't real, even if it would compile.
-7. Register: a `RegisterTo(r *adapter.Registry)` in your new package, plus
-   one added line in `RegisterAdapters` (`cmd/collector/adapters.go`).
-   `internal/app` takes no part in this.
+7. Register. A new vendor package gets a `RegisterTo(r *adapter.Registry)`
+   and one added line in `RegisterAdapters` (`cmd/collector/adapters.go`).
+   A new device kind in an existing vendor package adds one `r.Register`
+   call to that package's existing `RegisterTo` instead. `internal/app`
+   takes no part in this.
 8. Write fixtures and golden tests to the bar in
    `docs/reference/test-requirements.md`'s "A new adapter" section, with a
    provenance comment on every fixture — what you ran it against, and
@@ -74,13 +79,13 @@ It does not apply to:
 ## Verify
 
 ```bash
+go test -race ./internal/vendors/<vendor>/...
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-Expected: `make check` and `go test ./... -race` both pass; `gofmt -l .`
-prints nothing.
+Expected: both pass. `make check` already runs the whole suite under
+`-race`, gofmt (through golangci-lint) and the boundary lint; the first
+command is the fast loop while you work.
 
 ## Canonical doc
 

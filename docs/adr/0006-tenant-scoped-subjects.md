@@ -12,6 +12,8 @@ a seven-token, namespace-rooted grammar, so the body's statement that ADR
 and is false today. The body is left as written per the immutability
 convention; `internal/subject`'s `DefaultTemplate` is the live answer.
 
+[Status text as written on 2026-07-16, before ADR 0011 and ADR 0015 — read
+it with the two notes above:]
 The subject *grammar* below is now the operator's, configured per deployment;
 ADR 0009's default reproduces it exactly. The identity decisions — CE `type` =
 catalog ce-type verbatim, CE `source` = `//<agency>/<site>/<device-id>`,

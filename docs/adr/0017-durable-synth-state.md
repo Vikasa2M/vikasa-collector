@@ -1,6 +1,14 @@
 # ADR 0017: Synth's previous state is durable, in the cabinet's own JetStream KV
 
-**Status:** Accepted (2026-08-18)
+**Status:** Accepted (2026-08-18). Implemented 2026-10-13 in `internal/durable`
+(bucket `VIKASA_SYNTH_STATE`), so the "This is a decision, not an
+implementation" paragraph under Consequences is historical, and the
+known-gaps entry it links to has closed.
+Amended by [ADR 0020](0020-broker-absence-is-latency.md) (2026-10-12): state is
+seeded before the first *diff*, not the first poll — runners poll at once and
+synthesis is held until the device's state is loaded. ADR 0020 also records
+that the cabinet's NATS runs in its own container beside the collector, not
+embedded in it.
 
 ## Context
 [ADR 0016](0016-collector-as-transitional-shim.md) makes synthesis the

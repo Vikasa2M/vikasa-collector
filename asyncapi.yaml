@@ -17,8 +17,9 @@
 #
 # The addresses below show the DEFAULT subject rendering
 # ("{namespace}.{region}.{agency}.{agency_unit}.{service}.{device_id}.{event}",
-# internal/subject.DefaultTemplate) — no {site} token (dropped from the
-# default grammar) and no {version} token (the ce-type already carries it).
+# internal/subject.DefaultTemplate). The template has no {version} token (the
+# ce-type already carries it) and no {site} token; the instance.* events have
+# no device, so their {device_id} position renders the configured site.
 # Subject grammar is operator-configurable (ADR 0009), so a deployment with a
 # custom template publishes these same ce-types on subjects of its own shape.
 # The ce-type — the channel key, and the CloudEvent `type` — is what stays
@@ -26,10 +27,11 @@
 #
 # Kept honest by TestAsyncAPIAddressesMatchRenderedSubjects
 # (internal/docs/asyncapi_test.go), which renders each address below through
-# the real internal/subject.Template and fails if they drift, and by
-# TestAsyncAPICoversEveryEmittedType: every ce-type the health emitter can
-# produce must appear here, with payload properties matching the bytes it
-# actually emits.
+# the real internal/subject.Template and fails if they drift, and by the
+# conformance tests in internal/wire/health: TestAsyncAPICoversEveryEmittedType
+# (every ce-type the health emitter can produce appears here, with payload
+# properties matching the bytes it actually emits) and
+# TestAsyncAPIDocumentsNothingUnemittable (no channel here that nothing emits).
 
 asyncapi: 3.0.0
 
@@ -38,8 +40,8 @@ info:
   version: 1.0.0
   description: |
     Events defined by the collector itself. Catalog events (signal-control,
-    rsu, dms, …) are defined by openits-models and documented in that repo's
-    asyncapi.yaml; the collector relays them through versioned wire emitters.
+    dms, …) are defined by openits-models and documented in that repo's
+    asyncapi.yaml; the collector publishes them through its catalog emitter.
 
 defaultContentType: application/json
 
@@ -346,16 +348,16 @@ components:
             description: Cumulative since boot. Facets refused because their Go type was not their differ's.
           logs_suppressed:
             type: integer
-            description: Cumulative since boot. Warn-and-above log records not shipped as instance.log events because the per-interval limit was reached (ADR 0019 clause 10).
+            description: Cumulative since boot. Log records at or above log_ship_level not shipped as instance.log events because the per-interval limit was reached (ADR 0019 clause 10).
 
     openits-collector.instance.log.v1:
       contentType: application/json
-      summary: A warn-and-above record from the collector's own log.
+      summary: A record from the collector's own log, at or above log_ship_level.
       description: |
         Counters say something is wrong; logs say what (ADR 0019 clause 10).
-        Shipped at or above log_ship_level (default warn), at most a fixed
-        number per heartbeat interval; the excess is counted in the
-        heartbeat's logs_suppressed rather than shipped. Best-effort: if the
+        Shipped at or above log_ship_level (default warn), at most 20 per
+        heartbeat interval; the excess is counted in the heartbeat's
+        logs_suppressed rather than shipped. Best-effort: if the
         publish path is what is broken, its own log records cannot be
         published either, and the cumulative counters remain the record.
       headers:
@@ -382,7 +384,7 @@ components:
             description: Random per process; a new boot_id means the cumulative counters restarted from zero.
           level:
             type: string
-            description: slog level name (WARN, ERROR).
+            description: slog level name (DEBUG, INFO, WARN or ERROR); WARN and ERROR only at the default log_ship_level.
           message:
             type: string
             description: The log message.
@@ -402,9 +404,9 @@ components:
         ce-type:
           type: string
           description: |
-            Schema identity, verbatim. Note this is NOT the NATS subject: see
-            this file's header for the subject grammar, which the addresses
-            below are asserted against.
+            Schema identity, verbatim, and what consumers should match on.
+            It is NOT the NATS subject: see this file's header comment for the
+            subject grammar the channel addresses are asserted against.
         ce-id:
           type: string
           description: |
@@ -413,8 +415,10 @@ components:
             payload-bytes), then id = ULID(timestamp = stable-time-ms,
             randomness = digest[0:10]), rendered as 26-character Crockford
             base32 (internal/cloudevents.EventID). stable-time is the event's
-            occurred-at. Identical inputs yield an identical id, so JetStream
-            dedup holds across collector restarts.
+            occurred-at. Identical inputs yield an identical id, so a
+            republish of the same event, even across a collector restart, is
+            suppressed by the stream's two-minute duplicate window (the id is
+            also sent as Nats-Msg-Id).
         ce-source:
           type: string
           description: |

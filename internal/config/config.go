@@ -44,8 +44,8 @@ type Subject struct {
 // Config is the collector instance configuration.
 type Config struct {
 	// Region, Agency and AgencyUnit are the profile's identity triple and
-	// appear in every ce-source URN. Site is not in the URN; it stays because
-	// the collector still uses it for stream naming and health context.
+	// appear in every ce-source URN. Site is the collector's own id: its
+	// instance.* events carry it where a device event carries a device id.
 	Region     string `yaml:"region"`
 	Agency     string `yaml:"agency"`
 	AgencyUnit string `yaml:"agency_unit"`

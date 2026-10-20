@@ -1,97 +1,106 @@
 # vikasa-collector
 
-Open-source edge collector for ITS cabinets: polls local devices (signal
-controllers, RSUs, …) through vendor adapters, normalizes readings into a
-collector-owned domain model, and publishes CloudEvents to the cabinet's
-local NATS JetStream using versioned openits-models payloads.
+An open-source edge collector for ITS (intelligent transportation system)
+cabinets. It runs on a small Linux host inside the cabinet, polls the
+devices there (signal controllers, message signs, …) through vendor
+adapters, turns what changed into domain events, and publishes them as
+CloudEvents to the cabinet's local NATS JetStream. Event payloads use the
+[openits-models](https://github.com/Vikasa2M/openits-models) catalog.
 
-## Architecture in one diagram
+## How it works
 
 ```
 [device] ─transport─▶ ADAPTER ─sdk/model─▶ CORE ─wire emitter─▶ CloudEvent ─▶ local JetStream
 ```
 
-- **Adapters** (`internal/vendors/<vendor>/`) own transport
-  entirely and return only `sdk/model` types.
-- **The core** diffs snapshots into domain events, tracks device health,
-  and publishes on operator-configurable subjects (ADR 0009) — by default
-  the profile's seven-token grammar rooted on the ce-type's namespace:
-  `openits.<region>.<agency>.<agency-unit>.<service>.<device-id>.<event>` for
-  catalog events, `openits-collector.…` for collector health. Separate roots,
-  separate streams — collector-internal traffic and ITS telemetry differ in
-  retention and in who should be able to read them (ADR 0011).
-- **Wire emitters** (`internal/wire/`) are the only code that knows
-  openits-models — see [the boundary
+- **Adapters** (`internal/vendors/<vendor>/`) talk to one kind of device.
+  Each owns its transport (SNMP today) and returns only `sdk/model` types.
+- **The core** compares each poll with the previous one and turns the
+  differences into domain events. It also tracks whether each device is
+  reachable.
+- **Wire emitters** (`internal/wire/`) encode domain events as openits-models
+  payloads. They are the only code that imports openits-models — see [the
+  boundary
   rule](docs/reference/invariants.md#adapters-and-sdk-never-import-openits-models).
-  One package per pinned models release.
+- **The publisher** sends each event on an operator-configurable subject
+  (ADR 0009). By default that is the OpenITS profile's seven-token grammar,
+  rooted on the event type's namespace:
+  `openits.<region>.<agency>.<agency_unit>.<service>.<device_id>.<event>`
+  for catalog events, and `openits-collector.…` for the collector's own
+  health. The two roots go to separate streams, so a deployment can give
+  them different retention and different readers (ADR 0011).
 
-Why it's built this way: see `docs/adr/`. Start here for everything else —
-task guides, configuration, what will fail a PR: [`docs/README.md`](docs/README.md).
+[`docs/explanation/architecture.md`](docs/explanation/architecture.md) walks
+the pipeline end to end. The decisions behind it are in
+[`docs/adr/`](docs/adr/README.md).
 
 ## Status
 
-Gen-2, pre-1.0. The core is complete: nine facet kinds and nine differs,
-and a publish path carrying 29 catalog ce-types plus five collector-owned
-ones, each pinned by a byte-exact golden. Events reach JetStream as
-CloudEvents in the NATS reference profile's Tier 2 shape (binary mode,
-deterministic ULID `ce-id`, seven-token namespace-rooted subjects).
+Pre-1.0. The core is complete: nine facet kinds (typed slices of device
+state) with a differ each, and 29 catalog event types plus five
+collector-owned ones, each pinned by a byte-exact golden test. Events are
+published in the NATS reference profile's Tier 2 shape (binary-mode
+CloudEvents, deterministic ULID `ce-id`, seven-token subjects), and a
+conformance test runs openits-models' own Tier 2 checks against them.
 
-The collector is built to be left alone in a cabinet: it boots without its
-broker and queues until it appears, keeps its previous device state across
-restarts so nothing standing is re-announced, bounds every shutdown, serves a
-loopback `/livez`, `/readyz` and `/status`, and reports its own health and
-warnings on the bus. Release builds are linux `amd64`/`arm64` with a
-hardened systemd unit — see
-[deploying a collector](docs/how-to/deploy-a-collector.md).
+The collector is built to run unattended in a cabinet:
 
-What is missing is **adapters**. Two exist — `ntcip-asc` and `ntcip-dms` —
-and the other device kinds are modeled, diffed and wired with no device on
-the other end; see [starter tasks](docs/reference/starter-tasks.md).
+- it starts without its broker and queues events until the broker appears;
+- it keeps device state across restarts (in a JetStream key-value bucket),
+  so nothing already standing is announced again;
+- it bounds every shutdown;
+- it serves `/livez`, `/readyz` and `/status` on a loopback port;
+- it reports its own heartbeat and warnings on the bus.
 
-Events can still be dropped with a warning, and that is the designed
-behaviour rather than a gap: the emitter declines anything it cannot
-encode faithfully — a controller mode with no upstream identity, a shared
-event on a device kind it does not serve — instead of substituting a
-near-neighbour. A visible drop beats a wrong value on the bus.
+Release builds target linux `amd64` and `arm64` and ship with a hardened
+systemd unit. No release has been published yet; until one is, build the
+same archives with `make release-snapshot`. See [deploying a
+collector](docs/how-to/deploy-a-collector.md).
 
-## Run
+What is missing is **adapters**. Two exist, `ntcip-asc` (signal controller)
+and `ntcip-dms` (message sign). Camera, traffic-sensor and perception
+devices are modeled, diffed and wired, but nothing reads them yet — see
+[starter tasks](docs/reference/starter-tasks.md).
+
+Some events are dropped with a warning by design. The emitter declines an
+event it cannot encode faithfully (for example, a controller mode the
+catalog has no identity for) rather than publish a near match. A visible
+drop beats a wrong value on the bus.
+
+## Quick start
+
+Requires Go (the version in `go.mod`). No hardware or broker needed:
 
 ```bash
-make check    # vet + golangci-lint + tidy + race tests + boundary/docs lints — the CI gate
-make dev      # run the whole pipeline locally: embedded NATS, synthetic device
+make dev      # the real pipeline against an embedded JetStream and a synthetic device
+make check    # the CI gate: vet, golangci-lint, tidy, race tests, boundary and docs lints
 ```
 
-`make dev` is the one to start with. It runs the real pipeline against an
-embedded JetStream and a synthetic device and prints every CloudEvent that
-reaches the bus, so you can see the collector work before you have a cabinet.
-Its synthetic device is deliberately **not** a device simulator and its
-output is not a fixture source — see `cmd/dev`'s package comment.
+`make dev` prints every CloudEvent that reaches the bus, so you can watch
+the collector work before you have a cabinet. Its synthetic device is not
+a device simulator, and its output is not a fixture source — see
+`cmd/dev`'s package comment.
 
-Against a real cabinet, with a broker already running and devices reachable
-at the addresses in your config:
+To run against a real cabinet, you need a NATS server with JetStream and
+devices reachable at the addresses in your config:
 
 ```bash
 go run ./cmd/collector -config collector.yaml   # -nats defaults to nats://127.0.0.1:4222
 ```
 
-## Contributing an adapter
+[`collector.yaml`](collector.yaml) is a commented example.
+[`docs/reference/configuration.md`](docs/reference/configuration.md)
+documents every field and flag, including broker credentials and TLS.
 
-Never seen this repo before? [Build your first
-adapter](docs/tutorial/build-your-first-adapter.md) takes a fresh clone
-through to a real event on the bus in one sitting. When you're writing the
-real thing, [`docs/how-to/add-a-vendor-adapter.md`](docs/how-to/add-a-vendor-adapter.md)
-is the canonical guide.
+## Contributing
 
-Implement `sdk/adapter.StateReader` returning
-`sdk/model` types, register a `Descriptor{Vendor, DeviceKind}`, and ship
-recorded fixtures with golden tests — see [the fixture
-rule](docs/reference/invariants.md#no-fixtures-no-merge). Adapters don't
-reach for openits-models types — see [the boundary
-rule](docs/reference/invariants.md#adapters-and-sdk-never-import-openits-models).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
+New to the repo? [Build your first
+adapter](docs/tutorial/build-your-first-adapter.md) takes a fresh clone to a
+real event on the bus in one sitting. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers the rest, and the [documentation hub](docs/README.md) routes every
+other task.
 
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-Security reports: see [SECURITY.md](SECURITY.md).
+Report security issues as described in [SECURITY.md](SECURITY.md).

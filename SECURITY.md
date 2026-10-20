@@ -34,8 +34,18 @@ reports we care about include:
   corrupt subject grammar, stream bindings, or event routing;
 - **Publish path** — ways to forge, replay, or misroute events on the bus
   beyond what the deployment's NATS permissions allow;
+- **Broker credentials and TLS** — a way to leak the NATS credentials, or
+  to make the collector talk to a remote broker in plaintext or without
+  verifying it (ADR 0022);
+- **Management surface** — the loopback `/livez`, `/readyz` and `/status`
+  endpoints becoming reachable off-host, or exposing more than they should;
 - **Supply-chain / CI issues** — e.g. an unpinned or compromisable action,
   or a workflow that could leak the repository token or secrets.
 
 Out of scope: vulnerabilities in the devices themselves, in NATS, or in
 deployments' network configuration.
+
+## Supported versions
+
+The project is pre-1.0 and has not published a release yet. Fixes land on
+`main`; once releases exist, only the latest one receives fixes.

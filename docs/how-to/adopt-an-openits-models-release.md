@@ -1,12 +1,15 @@
 # Adopt an openits-models release
 
-This is the guide for moving the openits-models pin forward and catching
-`internal/wire/openits` up with whatever changed underneath it. It is not
-the guide for adding a mapping that doesn't exist yet — that's
-[`map-an-event-to-the-wire.md`](map-an-event-to-the-wire.md), and this
-document sends you there for the parts the two share rather than
-repeating them: the probe-before-you-trust-the-generated-code ritual, and
-the mechanics of adding a `ceTypeFor` entry and an encoder case.
+**At the end** the collector pins a newer openits-models release tag, and
+`internal/wire/openits` maps correctly against it: every golden diff
+explained, every newly declared ce-type mapped or allowlisted, `make check`
+green.
+
+**You need** the target release's tag and its release notes, and
+[`map-an-event-to-the-wire.md`](map-an-event-to-the-wire.md) at hand. This
+guide sends you there for the parts the two share — the probe ritual, and
+adding a `ceTypeFor` entry and an encoder case — rather than repeating
+them.
 
 ## The pin mechanism
 
@@ -15,7 +18,7 @@ yourself:
 
 ```
 $ grep openits-models go.mod
-	github.com/Vikasa2M/openits-models v0.3.0
+	github.com/Vikasa2M/openits-models v0.5.0
 ```
 
 [ADR 0018](../adr/0018-tagged-model-pins.md) is why, and the short version is
@@ -108,42 +111,47 @@ only when a fleet genuinely needs two models releases in one binary. Edit
    three agree). Update the `model_version` default only when the fleet is
    ready to move — two
    packages coexisting is the normal state during a migration, not
-   something to rush past. This is rare during lockstep; most bumps are
-   step 3 above, in place.
+   something to rush past. No fleet needs this yet; most bumps are step 3
+   above, in place.
 
 ## Verify
 
 ```bash
 make check
-go test ./... -race
-gofmt -l .
 ```
 
 See [`map-an-event-to-the-wire.md`'s Verify
-section](map-an-event-to-the-wire.md#verify) for what each command checks
-and why. Worth calling out for a pin bump specifically: `make check`'s
-`scripts/lint-boundary.sh` run is also what catches a `replace` directive
-left behind from local debugging during the bump — the exact shortcut ADR
-0010 still forbids — and Rule D, which fails if the pin came out as a
-pseudo-version because `@main` slipped into the `go get`.
+section](map-an-event-to-the-wire.md#verify) for what it covers. For a pin
+bump specifically, three parts of it earn their keep:
+
+- **The catalog-conformance tests** (`internal/wire/openits/catalog_test.go`)
+  read the newly pinned release's own catalog and fail on any ce-type the
+  emitter produces that the release does not declare, any newly declared
+  ce-type that is neither mapped nor in `unmapped`, and any `unmapped` entry
+  that is now mapped or no longer declared.
+- **The Tier 2 harness run** (`internal/wire/tier2`) runs the new release's
+  own conformance checks against a live collector stream, so a check the
+  release renamed or dropped fails rather than silently not running.
+- **The boundary lint** catches a `replace` directive left behind from
+  local debugging (Rule C), and a pin that came out as a pseudo-version
+  because `@main` slipped into the `go get` (Rule D).
 
 ## What this does not check for you
 
-Nothing in this repo verifies that the emitter's mapping table still
-agrees with the *newly pinned* release's own catalog — the goldens only
-prove the mapping matches what was recorded at the last bump, and
-`TestGoldensCoverEveryCEType` only proves the goldens keep up with the
-emitter's own routing table, not with openits-models. That gap is
-tracked, not silent — see
-[`docs/README.md`'s known-gaps entry for it](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state).
-Step 2's probe is the only thing standing in for that check today, which
-is why it isn't optional.
+The tests above check the *set* of ce-types against the release, not what
+each mapping puts inside the payload. An enum renumbering, an
+`identityref` that moved to another module, or a `ce-dataschema` revision
+the release superseded all compile and all pass the conformance tests. The
+goldens catch a byte change only if the generated code changed the bytes;
+a mapping that builds a string the release no longer recognises encodes
+just as it did before. Step 2's probe is what stands in for those checks,
+which is why it isn't optional.
 
-The v0.3.0 adoption is the worked example of why. It moved two things no
-compiler could see: the `object-class` identity hierarchy was hoisted from
+The v0.3.0 adoption is the worked example. It moved two things no compiler
+could see: the `object-class` identity hierarchy was hoisted from
 `openits-perception-types` into `openits-types`, so nine identityref strings
-the emitter builds by concatenation were silently pointing at identities that
-no longer existed; and `openits-perception-events` revved, so four ce-types'
-`ce-dataschema` constants were pointing at a superseded registry revision.
-Both build cleanly. Both were found by probing the module and diffing the
-schema-registry revisions, exactly as steps 2 and 4 describe.
+the emitter builds by concatenation were silently pointing at identities
+that no longer existed; and `openits-perception-events` revved, so four
+ce-types' `ce-dataschema` constants were pointing at a superseded registry
+revision. Both built cleanly. Both were found by probing the module and
+diffing the schema-registry revisions, exactly as steps 2 and 4 describe.

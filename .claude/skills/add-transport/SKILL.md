@@ -58,23 +58,26 @@ It does not apply to:
    ```go
    type Client interface {
        Get(ctx context.Context, oids []string) (map[string]int64, error)
+       GetAll(ctx context.Context, oids []string) (Values, error)
        Close() error
    }
    ```
 
-   `Get` takes OID strings and returns raw integers; it has no idea an OID
-   means "operation status" or that a bit in the result is a conflict-flash
-   flag. `internal/vendors/ntcip/asc.go`'s `readSignalStatus` and
+   `Get` takes OID strings and returns raw integers; `GetAll` also returns
+   raw OCTET STRING bytes (`Values{Ints, Octets}`), which `ntcip-dms` needs
+   for message text. Neither has any idea an OID means "operation status"
+   or that a bit in the result is a conflict-flash flag. `internal/vendors/ntcip/asc.go`'s `readSignalStatus` and
    `readFaultSet` are where those raw integers become `model.SignalStatus`
    and `model.FaultSet` — on the adapter's side of the interface, never the
    transport's. If you find yourself importing `sdk/model` into your
    transport package, the boundary has moved to the wrong side.
 
-3. **An entry missing from a response is absence, not zero.** `snmp.Client.Get`
-   omits any OID the agent didn't answer from its result map rather than
-   filling in `0` — the doc comment on `Client` says so explicitly, and
+3. **An entry missing from a response is absence, not zero.** `snmp.Client`
+   omits any OID the agent didn't answer from its result maps rather than
+   filling in `0` — the doc comment on `Values` says so explicitly, and
    `toInt64`'s `NoSuchObject`/`NoSuchInstance` branch is where that
-   omission happens. Whatever shape your protocol's non-answer takes (a 404,
+   omission happens. An answered but empty OCTET STRING stays present
+   (empty), which is distinct from omission. Whatever shape your protocol's non-answer takes (a 404,
    a timeout on one field, an empty response body), preserve it as
    *absence* through your `Client`, not as a zero value — the adapter's
    facet code is what turns that absence into a `model.FacetError`
@@ -87,7 +90,8 @@ It does not apply to:
    for it — `internal/vendors/ntcip/asc.go`'s `asc` struct holds a
    `client snmp.Client` field, and `NewASC(deviceID string, client
    snmp.Client)` takes the interface, injectable by both the real `Dial`
-   and `snmptest.Static`. Shape your `Dial(cfg DialConfig) (Client, error)`
+   and `snmptest.Static`. `ntcip-dms` shares the same `Client`; one
+   transport serves every adapter that speaks the protocol. Shape your `Dial(cfg DialConfig) (Client, error)`
    the same way: a constructor that returns the interface, not the
    concrete type.
 
@@ -115,7 +119,7 @@ It does not apply to:
      adapter built on your transport can reach the bar in
      [`test-requirements.md`'s "A new adapter" section](../../../docs/reference/test-requirements.md#a-new-adapter).
 
-6. **Chunk to your own protocol's limit, not SNMP's.** `snmp.Client.Get`
+6. **Chunk to your own protocol's limit, not SNMP's.** `snmp`'s `GetAll`
    splits its OID list into batches of 16 before each round trip, with the
    comment `// gosnmp caps PDUs per request; chunk to stay portable across
    agents.` right above the constant — that number is what `gosnmp`'s PDU
@@ -127,9 +131,9 @@ It does not apply to:
    ceiling, don't invent one.
 
 7. **Serialize I/O yourself if the session can't take concurrent use.**
-   `snmp.client` wraps every `Get`/`Close` in a mutex because "one gosnmp
-   connection must never see concurrent use" (the comment on `Dial`) — a
-   fact about that specific library, not about transports in general. If
+   `snmp`'s `client` holds a mutex for every `GetAll` (which `Get` calls)
+   and `Close`, because "one gosnmp connection must never see concurrent
+   use" (the comment on `Dial`) — a fact about that specific library, not about transports in general. If
    your underlying connection has the same constraint, your `Client`
    implementation is where that gets enforced; nothing upstream serializes
    it for you.
@@ -144,21 +148,15 @@ It does not apply to:
 ## Verify
 
 ```bash
+go test -race -v ./sdk/transport/...
 make check
-go test ./... -race
-gofmt -l .
 ```
 
-Expected: `make check` and `go test ./... -race` both pass; `gofmt -l .`
-prints nothing.
-
-```bash
-go test ./sdk/transport/... -race -v
-```
-
-Expected: your new package and its `<name>test` fake both pass, including
-the fake's compile-time `Client` assertion and any per-call failure
-injection test you wrote for it.
+Expected: both pass. The first shows your new package and its `<name>test`
+fake passing, including the fake's compile-time `Client` assertion and any
+per-call failure injection test you wrote for it. `make check` adds gofmt
+(through golangci-lint) and the boundary lint that keeps `sdk/` free of
+openits-models.
 
 ## Canonical doc
 

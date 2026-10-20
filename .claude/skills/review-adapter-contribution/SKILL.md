@@ -19,10 +19,12 @@ exists rather than a checklist in a doc:
   *recorded from a device* or *hand-typed to make the test pass* is
   indistinguishable to every automated check in this repo. Only a human or an
   agent reading the diff can tell.
-- **The one existing adapter fails that bar.** `ntcip-asc`'s fixtures are
+- **An existing adapter fails that bar.** `ntcip-asc`'s fixtures are
   hand-typed. A contributor who copies it is copying a known gap, and
   "it matches the existing adapter" is the most plausible-sounding wrong
-  argument you will hear.
+  argument you will hear. `ntcip-dms`'s fixtures, transcribed from a live
+  controller with a dated provenance comment, are the example to point
+  at instead.
 
 ## When this applies
 
@@ -115,7 +117,9 @@ default.
 **Scope creep.** An adapter contribution should touch:
 
 - `internal/vendors/<vendor>/<kind>.go` and its test — new files
-- one line in `RegisterAdapters` (`cmd/collector/adapters.go`)
+- registration: one line in `RegisterAdapters` (`cmd/collector/adapters.go`)
+  for a new vendor package, or one `r.Register` call in an existing
+  vendor package's `RegisterTo`
 - optionally `collector.yaml`'s example
 
 Anything else deserves a question. Changes to `sdk/model`, `internal/synth`,
