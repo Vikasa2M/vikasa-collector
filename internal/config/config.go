@@ -77,7 +77,9 @@ type Config struct {
 
 // deviceIDRe is the wire's device-id pattern. CollectorID rides in observed-by,
 // which is typed device-id upstream, so a value that violates it produces a
-// payload the consumer rejects long after we could have acted on it.
+// payload the consumer rejects long after we could have acted on it. Device
+// ids are held to it too: each is the last segment of the colon-delimited
+// ce-source URN, which ce-id hashes.
 var deviceIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Tenant returns the validated-shape tenant identity.
@@ -206,6 +208,9 @@ func (c *Config) validate(reg *adapter.Registry) error {
 		d := &c.Devices[i]
 		if d.ID == "" {
 			return fmt.Errorf("devices[%d]: id is required", i)
+		}
+		if !deviceIDRe.MatchString(d.ID) {
+			return fmt.Errorf("device id %q must match %s (it is the last segment of the ce-source URN)", d.ID, deviceIDRe)
 		}
 		if seen[d.ID] {
 			return fmt.Errorf("duplicate device id %q", d.ID)

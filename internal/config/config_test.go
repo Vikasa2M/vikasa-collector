@@ -285,6 +285,24 @@ func TestLoadRejectsMalformedCollectorID(t *testing.T) {
 	}
 }
 
+// A device id is the last segment of the colon-delimited ce-source URN, so
+// it must satisfy the same device-id pattern as collector_id: a colon would
+// add a URN segment, and ce-id hashes those bytes. Unlike the subject check,
+// this holds whatever the template is, because the URN always carries the id.
+func TestLoadRejectsDeviceIDThatWouldCorruptTheURN(t *testing.T) {
+	for _, bad := range []string{"asc:1", "has space", "has.dot", "has/slash"} {
+		yaml := strings.Replace(validYAML, "id: asc-1", "id: \""+bad+"\"", 1)
+		_, err := Load(write(t, yaml), regWith("ntcip", "asc"))
+		if err == nil {
+			t.Errorf("Load accepted device id %q", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), bad) {
+			t.Errorf("device id %q: error %q does not name the id", bad, err)
+		}
+	}
+}
+
 func TestLoadAcceptsValidCollectorID(t *testing.T) {
 	yaml := baseYAML + "collector_id: cabinet-042-collector_1\n"
 	cfg, err := Load(write(t, yaml), regWith("ntcip", "asc"))
