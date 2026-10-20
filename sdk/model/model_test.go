@@ -6,6 +6,7 @@ import (
 )
 
 func TestSnapshotFacetLookup(t *testing.T) {
+	t.Parallel()
 	s := &Snapshot{
 		DeviceID:  "asc-1",
 		SampledAt: time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
@@ -32,6 +33,7 @@ func TestSnapshotFacetLookup(t *testing.T) {
 }
 
 func TestControllerModeString(t *testing.T) {
+	t.Parallel()
 	cases := map[ControllerMode]string{
 		ModeUnknown: "unknown", ModeNormal: "normal", ModeFlash: "flash",
 		ModeStandby: "standby", ModeOff: "off", ControllerMode(99): "unknown",

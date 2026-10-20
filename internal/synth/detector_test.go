@@ -16,6 +16,7 @@ func detSnap(at time.Time, samples ...model.DetectorSample) *model.Snapshot {
 // the raw cumulative counter here, producing a large bogus spike on every
 // collector restart.
 func TestFirstPollEmitsNoReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	evs := e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 5000, OccupancyTenths: 100}))
 	if len(evs) != 0 {
@@ -24,6 +25,7 @@ func TestFirstPollEmitsNoReport(t *testing.T) {
 }
 
 func TestSecondPollReportsDelta(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 5000, OccupancyTenths: 100}))
 
@@ -51,6 +53,7 @@ func TestSecondPollReportsDelta(t *testing.T) {
 // corrupting any rate a consumer computes. Rounding to the wire's whole
 // seconds is the emitter's job, done once, later — not the domain's.
 func TestSubSecondIntervalIsNotLostToZero(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 5000, OccupancyTenths: 100}))
 
@@ -72,6 +75,7 @@ func TestSubSecondIntervalIsNotLostToZero(t *testing.T) {
 // decrease means the controller reset. Reporting the current value is correct
 // for a reset.
 func TestCounterDecreaseIsTreatedAsReset(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 5000}))
 	evs := e.Apply(detSnap(t0.Add(time.Second), model.DetectorSample{Channel: 1, VolumeCount: 3}))
@@ -84,6 +88,7 @@ func TestCounterDecreaseIsTreatedAsReset(t *testing.T) {
 // A channel with no previous sample has no interval basis — same rule as the
 // first poll, applied per channel. It appears in the next report.
 func TestNewChannelIsOmittedForOnePoll(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 100}))
 
@@ -106,6 +111,7 @@ func TestNewChannelIsOmittedForOnePoll(t *testing.T) {
 }
 
 func TestReadingsAreSortedByChannel(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	mk := func(at time.Time, base uint32) *model.Snapshot {
 		return detSnap(at,
@@ -126,6 +132,7 @@ func TestReadingsAreSortedByChannel(t *testing.T) {
 // An empty facet is normal (a controller with no detectors), and must not
 // produce a report full of nothing.
 func TestEmptyFacetEmitsNoReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0))
 	if evs := e.Apply(detSnap(t0.Add(time.Second))); len(evs) != 0 {
@@ -135,6 +142,7 @@ func TestEmptyFacetEmitsNoReport(t *testing.T) {
 
 // The iron rule, for this facet.
 func TestFailedDetectorReadEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDetectorDiffer())
 	e.Apply(detSnap(t0, model.DetectorSample{Channel: 1, VolumeCount: 100}))
 	failed := &model.Snapshot{DeviceID: "asc-1", SampledAt: t0.Add(time.Second),

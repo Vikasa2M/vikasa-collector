@@ -3,6 +3,7 @@ package model
 import "testing"
 
 func TestFaultSetIsAFacet(t *testing.T) {
+	t.Parallel()
 	var f Facet = FaultSet{Faults: []Fault{{
 		ID: "mmu-fault", Severity: SeverityCritical, Category: CategoryConflict,
 		Description: "MMU fault detected",
@@ -19,6 +20,7 @@ func TestFaultSetIsAFacet(t *testing.T) {
 // so the Plan 2 mapping is a straight table. The type stays collector-owned:
 // upstream renumbering must not move it.
 func TestFaultSeverityString(t *testing.T) {
+	t.Parallel()
 	cases := map[FaultSeverity]string{
 		SeverityInfo: "info", SeverityWarning: "warning", SeverityMinor: "minor",
 		SeverityMajor: "major", SeverityCritical: "critical",
@@ -35,6 +37,7 @@ func TestFaultSeverityString(t *testing.T) {
 }
 
 func TestFaultCategoryString(t *testing.T) {
+	t.Parallel()
 	cases := map[FaultCategory]string{
 		CategoryUnknown: "unknown", CategoryConflict: "conflict",
 		CategoryCabinet: "cabinet", CategoryPower: "power",

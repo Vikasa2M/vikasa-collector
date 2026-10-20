@@ -3,6 +3,7 @@ package model
 import "testing"
 
 func TestDMSStatusIsAFacet(t *testing.T) {
+	t.Parallel()
 	var f Facet = DMSStatus{
 		ControlMode: ControlCentral, DisplayState: DisplayNormal,
 		ActiveMemoryType: MemoryChangeable, ActiveSlot: 4,
@@ -19,6 +20,7 @@ func TestDMSStatusIsAFacet(t *testing.T) {
 // Every enum's zero value must mean "we do not know", never a real state: a
 // sign that fails to answer an object must not read as a definite value.
 func TestDMSEnumZeroValuesMeanUnknown(t *testing.T) {
+	t.Parallel()
 	if ControlUnknown != 0 || DisplayUnknown != 0 || MemoryUnknown != 0 || StatusUnknown != 0 {
 		t.Error("control/display/memory/status zero values must be the Unknown variant")
 	}
@@ -41,6 +43,7 @@ func TestDMSEnumZeroValuesMeanUnknown(t *testing.T) {
 }
 
 func TestDMSEnumStrings(t *testing.T) {
+	t.Parallel()
 	for got, want := range map[string]string{
 		ControlLocal.String(): "local", ControlCentral.String(): "central",
 		ControlCentralOverride.String(): "central-override", ControlSimulation.String(): "simulation",
@@ -66,6 +69,7 @@ func TestDMSEnumStrings(t *testing.T) {
 }
 
 func TestDMSFaultCategories(t *testing.T) {
+	t.Parallel()
 	for cat, want := range map[FaultCategory]string{
 		CategoryPixel: "pixel", CategoryController: "controller", CategoryEnvironment: "environment",
 	} {

@@ -1,12 +1,12 @@
 package ntcip
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"maps"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 	"github.com/Vikasa2M/vikasa-collector/sdk/transport/snmp/snmptest"
@@ -22,7 +22,7 @@ var healthyFixture = map[string]int64{
 
 func TestASCReadGolden(t *testing.T) {
 	a := NewASC("asc-1", &snmptest.Static{Values: healthyFixture})
-	snap, err := a.Read(context.Background())
+	snap, err := a.Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -34,8 +34,9 @@ func TestASCReadGolden(t *testing.T) {
 		t.Fatal("missing signal-status facet")
 	}
 	want := model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}
-	if got := f.(model.SignalStatus); !reflect.DeepEqual(got, want) {
-		t.Fatalf("SignalStatus = %+v, want %+v", got, want)
+	got := f.(model.SignalStatus)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("SignalStatus mismatch (-want +got):\n%s", diff)
 	}
 	// healthyFixture carries no alarm OID (see TestASCUnansweredAlarmIsFaultSetFacetError),
 	// so only the signal-status facet is asserted error-free here.
@@ -51,7 +52,7 @@ func TestASCReadPreemptionAndFlash(t *testing.T) {
 		".1.3.6.1.4.1.1206.4.2.1.3.2.0": 3,
 		".1.3.6.1.4.1.1206.4.2.1.6.5.0": 2, // preempt 2 active
 	}
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -60,8 +61,8 @@ func TestASCReadPreemptionAndFlash(t *testing.T) {
 		Mode: model.ModeFlash, InConflictFlash: true, ActivePlanID: 3,
 		PreemptionActive: true, PreemptionSource: "preempt-2",
 	}
-	if !reflect.DeepEqual(got.(model.SignalStatus), want) {
-		t.Fatalf("SignalStatus = %+v, want %+v", got, want)
+	if diff := cmp.Diff(want, got.(model.SignalStatus)); diff != "" {
+		t.Fatalf("SignalStatus mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -69,7 +70,7 @@ func TestASCReadPartialFailureIsFacetError(t *testing.T) {
 	// Agent answered nothing for the mandatory operation-status OID:
 	// the facet must be reported failed, NOT defaulted (absence ≠ state).
 	fx := map[string]int64{".1.3.6.1.4.1.1206.4.2.1.3.2.0": 3}
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("partial data must not be a hard error: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestASCReadPartialFailureIsFacetError(t *testing.T) {
 }
 
 func TestASCReadTransportErrorIsHardError(t *testing.T) {
-	_, err := NewASC("asc-1", &snmptest.Static{Err: errors.New("timeout")}).Read(context.Background())
+	_, err := NewASC("asc-1", &snmptest.Static{Err: errors.New("timeout")}).Read(t.Context())
 	if err == nil {
 		t.Fatal("transport failure must be a hard Read error")
 	}
@@ -103,7 +104,7 @@ func TestASCNoAlarmBitsMeansEmptyFaultSet(t *testing.T) {
 	fx := map[string]int64{}
 	maps.Copy(fx, healthyFixture)
 	fx[oidAlarm] = 0
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -119,7 +120,7 @@ func TestASCFullyHealthyReadProducesNoFacetErrors(t *testing.T) {
 	maps.Copy(fx, healthyFixture)
 	fx[oidAlarm] = 0
 
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestASCAlarmBitmapDecodeGolden(t *testing.T) {
 	// bits 1 (mmu-fault) and 3 (power-loss), plus bit 12 which is undefined.
 	fx[oidAlarm] = (1 << 1) | (1 << 3) | (1 << 12)
 
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -165,8 +166,8 @@ func TestASCAlarmBitmapDecodeGolden(t *testing.T) {
 		{ID: "mmu-fault", Severity: model.SeverityCritical, Category: model.CategoryConflict, Description: "MMU fault detected"},
 		{ID: "power-loss", Severity: model.SeverityMajor, Category: model.CategoryPower, Description: "Power loss / generator running"},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("faults = %+v\nwant     %+v", got, want)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("faults mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -174,7 +175,7 @@ func TestASCUnansweredAlarmIsFaultSetFacetError(t *testing.T) {
 	// healthyFixture has no alarm OID: the fault facet must be reported failed
 	// rather than defaulted to "no faults" — absence of evidence is never a
 	// state change, and an empty set would clear every real fault downstream.
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: healthyFixture}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: healthyFixture}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("partial data must not be a hard error: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestASCFacetsFailIndependently(t *testing.T) {
 		".1.3.6.1.4.1.1206.4.2.1.3.2.0": 3,      // pattern only; operation-status absent
 		oidAlarm:                        1 << 2, // cabinet-door
 	}
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -244,7 +245,7 @@ func TestASCDetectorGoldenAndOccupancyConversion(t *testing.T) {
 		1: {vol: 1234, occHalfPct: 40},
 		2: {vol: 99, occHalfPct: 200},
 	})
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -252,8 +253,9 @@ func TestASCDetectorGoldenAndOccupancyConversion(t *testing.T) {
 		{Channel: 1, VolumeCount: 1234, OccupancyTenths: 200},
 		{Channel: 2, VolumeCount: 99, OccupancyTenths: 1000},
 	}
-	if got := samplesIn(t, snap); !reflect.DeepEqual(got, want) {
-		t.Fatalf("samples = %+v\nwant      %+v", got, want)
+	got := samplesIn(t, snap)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("samples mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -269,8 +271,9 @@ func TestASCNegativeOccupancyClampsToZero(t *testing.T) {
 	want := []model.DetectorSample{
 		{Channel: 1, VolumeCount: 77, OccupancyTenths: 0},
 	}
-	if got := samplesIn(t, mustRead(t, fx)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("samples = %+v\nwant      %+v", got, want)
+	got := samplesIn(t, mustRead(t, fx))
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("samples mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -285,8 +288,9 @@ func TestASCOutOfSpecHighOccupancyClampsTo1000(t *testing.T) {
 	want := []model.DetectorSample{
 		{Channel: 1, VolumeCount: 88, OccupancyTenths: 1000},
 	}
-	if got := samplesIn(t, mustRead(t, fx)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("samples = %+v\nwant      %+v", got, want)
+	got := samplesIn(t, mustRead(t, fx))
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("samples mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -385,7 +389,7 @@ func TestASCDetectorTableGetFailureIsFacetError(t *testing.T) {
 	snap, err := NewASC("asc-1", &snmptest.Static{
 		Values:   fx,
 		FailCall: map[int]error{2: errors.New("timeout")},
-	}).Read(context.Background())
+	}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("a failed table Get must not be a hard Read error: %v", err)
 	}
@@ -415,7 +419,7 @@ func TestASCDetectorTableGetFailureIsFacetError(t *testing.T) {
 
 func mustRead(t *testing.T, fx map[string]int64) *model.Snapshot {
 	t.Helper()
-	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(context.Background())
+	snap, err := NewASC("asc-1", &snmptest.Static{Values: fx}).Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

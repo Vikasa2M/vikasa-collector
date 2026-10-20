@@ -84,6 +84,7 @@ func waitSeeded(t *testing.T, s *State) {
 
 func shutdown(t *testing.T, s *State) {
 	t.Helper()
+	// Not t.Context(): this runs in t.Cleanup, after the test context is done.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	s.Flush(ctx)

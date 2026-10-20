@@ -104,9 +104,17 @@ devices:
 	}
 	defer func() { _ = sub.Unsubscribe() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	go func() { _ = Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
+	// Stop the collector and wait for it before the broker is torn down, so
+	// no poll loop outlives the test.
+	defer func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("Run: %v", err)
+		}
+	}()
 
 	// A signal controller's reachability is a catalog fact (ADR 0019 Scope):
 	// it goes out as signal-control's comm-health-event, not on the
@@ -177,7 +185,7 @@ func TestRunRejectsUnparseableSubjectTemplate(t *testing.T) {
 		Devices: []config.Device{{ID: "asc-1", Vendor: "fixture", DeviceKind: "asc", PollInterval: 20 * time.Millisecond}},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}); err == nil {
 		t.Fatal("Run must refuse to start on a template it cannot render")

@@ -6,6 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/Vikasa2M/openits-models v0.5.0
+	github.com/google/go-cmp v0.7.0
 	github.com/gosnmp/gosnmp v1.45.0
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.15.0
@@ -18,7 +19,6 @@ require (
 require (
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/golang/glog v1.2.5 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect

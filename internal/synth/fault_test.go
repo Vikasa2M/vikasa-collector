@@ -20,6 +20,7 @@ var (
 )
 
 func TestFirstPollRaisesEverythingCurrentlyRaised(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer())
 	evs := e.Apply(faultSnap(t0, mmu, door))
 	if len(evs) != 2 {
@@ -33,6 +34,7 @@ func TestFirstPollRaisesEverythingCurrentlyRaised(t *testing.T) {
 }
 
 func TestRaiseAndClear(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer())
 	e.Apply(faultSnap(t0, mmu))
 
@@ -58,6 +60,7 @@ func TestRaiseAndClear(t *testing.T) {
 }
 
 func TestUnchangedFaultSetEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer())
 	e.Apply(faultSnap(t0, mmu, door))
 	if evs := e.Apply(faultSnap(t0.Add(time.Second), mmu, door)); len(evs) != 0 {
@@ -68,6 +71,7 @@ func TestUnchangedFaultSetEmitsNothing(t *testing.T) {
 // A fault whose attributes change while its ID stays raised is not a raise.
 // Nothing consumes an "amended fault" event; inventing one is YAGNI.
 func TestAttributeChangeIsNotARaise(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer())
 	e.Apply(faultSnap(t0, mmu))
 	worse := mmu
@@ -80,6 +84,7 @@ func TestAttributeChangeIsNotARaise(t *testing.T) {
 // Determinism: gen-1 iterated a Go map here, so its raise/clear order was
 // nondeterministic. This is a regression guard, not a style preference.
 func TestEventOrderIsSortedByFaultID(t *testing.T) {
+	t.Parallel()
 	for range 20 { // map iteration order varies per run
 		e := NewEngine(NewFaultDiffer())
 		evs := e.Apply(faultSnap(t0, lampOut, mmu, door, powerOut))
@@ -100,6 +105,7 @@ func TestEventOrderIsSortedByFaultID(t *testing.T) {
 }
 
 func TestClearOrderIsSortedByFaultID(t *testing.T) {
+	t.Parallel()
 	for range 20 {
 		e := NewEngine(NewFaultDiffer())
 		e.Apply(faultSnap(t0, lampOut, mmu, door, powerOut))
@@ -122,6 +128,7 @@ func TestClearOrderIsSortedByFaultID(t *testing.T) {
 // because diffFaults was a pure set-difference that CLEARED EVERY REAL FAULT,
 // then re-raised them on recovery. A failed read must never clear a fault.
 func TestFailedFaultReadNeverClears(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer())
 	e.Apply(faultSnap(t0, mmu, door))
 

@@ -92,7 +92,7 @@ devices:
 	}
 	defer sub.Unsubscribe() //nolint:errcheck
 
-	ctx, cancel := context.WithTimeout(context.Background(), window)
+	ctx, cancel := context.WithTimeout(t.Context(), window)
 	defer cancel()
 	if err := Run(ctx, cfg, reg, Options{NATSURL: ns.ClientURL(), Version: "test"}); err != nil {
 		t.Fatalf("Run: %v", err)

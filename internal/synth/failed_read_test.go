@@ -25,6 +25,7 @@ func failedOf(dev, kind string, at time.Time, k model.Kind) *model.Snapshot {
 }
 
 func TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewCCTVDiffer())
 	e.Apply(snapOf("cam-03", "cctv", camAt, cam(model.CCTVControlCentral)))
 
@@ -45,6 +46,7 @@ func TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure(t *testing.
 // The dangerous reading of a failed poll here is "no incidents", which would
 // clear every open incident and then re-detect it on recovery.
 func TestZoneIncidentFailedReadNeitherClearsNorRedetects(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewZoneIncidentDiffer())
 	open := set(inc("i-1", model.IncidentMajor, 90))
 	e.Apply(snapOf("lidar-01", "perception", pcpAt, open))
@@ -58,6 +60,7 @@ func TestZoneIncidentFailedReadNeitherClearsNorRedetects(t *testing.T) {
 }
 
 func TestTrafficIntervalFailedReadDoesNotDuplicateTheReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewTrafficIntervalDiffer())
 	if evs := e.Apply(snapOf("ts-01", "traffic-sensor", tsAt, intervals(tsAt, 12))); len(evs) != 1 {
 		t.Fatalf("first interval emitted %v, want one report", kinds(evs))
@@ -73,6 +76,7 @@ func TestTrafficIntervalFailedReadDoesNotDuplicateTheReport(t *testing.T) {
 }
 
 func TestZoneIntervalFailedReadDoesNotDuplicateTheReport(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewZoneIntervalDiffer())
 	if evs := e.Apply(snapOf("lidar-01", "perception", pcpAt, zones(pcpAt, 5))); len(evs) != 2 {
 		t.Fatalf("first interval emitted %v, want its two reports", kinds(evs))

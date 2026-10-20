@@ -26,6 +26,7 @@ func intervals(start time.Time, vol uint32) model.TrafficIntervals {
 }
 
 func TestTrafficDiffer_FirstObservationEmits(t *testing.T) {
+	t.Parallel()
 	// Deliberately UNLIKE the detector differ, which stays silent on first
 	// poll because a cumulative counter has no basis yet. These sensors hand
 	// over a finished interval they binned themselves, so the first read is a
@@ -51,6 +52,7 @@ func TestTrafficDiffer_FirstObservationEmits(t *testing.T) {
 }
 
 func TestTrafficDiffer_SameIntervalReReadEmitsNothing(t *testing.T) {
+	t.Parallel()
 	// Polling faster than the sensor's binning window re-reads one interval.
 	// Re-publishing it would inflate every downstream count; the interval
 	// start is what distinguishes a new measurement from the same one again.
@@ -63,6 +65,7 @@ func TestTrafficDiffer_SameIntervalReReadEmitsNothing(t *testing.T) {
 }
 
 func TestTrafficDiffer_NewIntervalEmits(t *testing.T) {
+	t.Parallel()
 	d := NewTrafficIntervalDiffer()
 	prev := intervals(tsAt.Add(-2*time.Minute), 42)
 	evs := d.Diff(prev, intervals(tsAt.Add(-time.Minute), 17), tsBase())
@@ -75,6 +78,7 @@ func TestTrafficDiffer_NewIntervalEmits(t *testing.T) {
 }
 
 func TestTrafficDiffer_EmptyLanesEmitNothing(t *testing.T) {
+	t.Parallel()
 	// A sensor reporting no lanes is a configuration, not a measurement. An
 	// empty report would read downstream as "zero traffic".
 	d := NewTrafficIntervalDiffer()
@@ -85,6 +89,7 @@ func TestTrafficDiffer_EmptyLanesEmitNothing(t *testing.T) {
 }
 
 func TestTrafficDiffer_LanesAreSorted(t *testing.T) {
+	t.Parallel()
 	d := NewTrafficIntervalDiffer()
 	curr := model.TrafficIntervals{
 		IntervalStart: tsAt, IntervalDuration: time.Minute,

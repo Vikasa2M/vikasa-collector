@@ -2,9 +2,10 @@ package synth
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -13,6 +14,7 @@ import (
 // diffs nothing for it — not even the fault differ's first-poll raise,
 // which is exactly the restart storm ADR 0017 exists to prevent.
 func TestHeldEngineEmitsNothingUntilSeeded(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer()).HoldUntilSeeded()
 	if evs := e.Apply(faultSnap(t0, mmu)); len(evs) != 0 {
 		t.Fatalf("unseeded device emitted %v", kinds(evs))
@@ -33,6 +35,7 @@ func TestHeldEngineEmitsNothingUntilSeeded(t *testing.T) {
 // A transition that happened while the collector was down is reported on
 // the first diff after seeding, against the state it had before.
 func TestTransitionAcrossARestartIsEmittedOnce(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer()).HoldUntilSeeded()
 	e.Seed("asc-1", []model.Facet{model.SignalStatus{Mode: model.ModeNormal, ActivePlanID: 3}})
 	evs := e.Apply(snapAt(t0, model.SignalStatus{Mode: model.ModeFlash, ActivePlanID: 3}))
@@ -47,6 +50,7 @@ func TestTransitionAcrossARestartIsEmittedOnce(t *testing.T) {
 // Seeding a device with no stored state is the legitimate first boot
 // (ADR 0017): diffing proceeds with the ordinary first-observation rules.
 func TestSeedingEmptyIsAFirstBoot(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewFaultDiffer()).HoldUntilSeeded()
 	e.Seed("asc-1", nil)
 	if evs := e.Apply(faultSnap(t0, mmu)); len(evs) != 1 {
@@ -58,6 +62,7 @@ func TestSeedingEmptyIsAFirstBoot(t *testing.T) {
 // volatile kinds: detector samples change every poll, and persisting them
 // would be a flash write per poll (ADR 0017 writes only on transitions).
 func TestChangeHookReportsDurableKindsOnly(t *testing.T) {
+	t.Parallel()
 	var got []model.Kind
 	e := NewEngine(NewSignalDiffer(), NewDetectorDiffer()).WithChangeHook(func(_ string, k model.Kind, _ model.Facet) {
 		got = append(got, k)
@@ -74,6 +79,7 @@ func TestChangeHookReportsDurableKindsOnly(t *testing.T) {
 // What the durable layer stores must decode back to the identical facet,
 // for every kind the engine persists.
 func TestDecodeFacetRoundTripsEveryDurableKind(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewSignalDiffer(), NewFaultDiffer(), NewDMSDiffer(), NewDMSEnvironmentDiffer(),
 		NewTrafficIntervalDiffer(), NewZoneIncidentDiffer(), NewZoneIntervalDiffer(), NewCCTVDiffer())
 	facets := []model.Facet{
@@ -95,8 +101,8 @@ func TestDecodeFacetRoundTripsEveryDurableKind(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", f.FacetKind(), err)
 		}
-		if !reflect.DeepEqual(back, f) {
-			t.Errorf("%s did not round-trip:\n got %#v\nwant %#v", f.FacetKind(), back, f)
+		if diff := cmp.Diff(f, back); diff != "" {
+			t.Errorf("%s did not round-trip (-want +got):\n%s", f.FacetKind(), diff)
 		}
 	}
 	if _, err := e.DecodeFacet("no-such-kind", []byte(`{}`)); err == nil {

@@ -30,7 +30,7 @@ func TestLiveDMSRead(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	snap, err := NewDMS("dms-lab", c).Read(ctx)
 	if err != nil {

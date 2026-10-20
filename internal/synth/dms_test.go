@@ -23,6 +23,7 @@ var dmsNormal = model.DMSStatus{
 // Nothing has transitioned on the first observation; we have merely learned
 // the current state.
 func TestDMSFirstPollEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	if evs := e.Apply(dmsSnap(t0, dmsNormal)); len(evs) != 0 {
 		t.Fatalf("first poll must emit nothing, got %v", kinds(evs))
@@ -30,6 +31,7 @@ func TestDMSFirstPollEmitsNothing(t *testing.T) {
 }
 
 func TestDMSNoChangeEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 	if evs := e.Apply(dmsSnap(t0.Add(time.Second), dmsNormal)); len(evs) != 0 {
@@ -40,6 +42,7 @@ func TestDMSNoChangeEmitsNothing(t *testing.T) {
 // The two axes are independent: each must fire on its own without dragging
 // the other along.
 func TestDMSAxesChangeIndependently(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 
@@ -72,6 +75,7 @@ func TestDMSAxesChangeIndependently(t *testing.T) {
 // display state fires message-changed alone, and an in-place rewrite of the
 // same slot (CRC/text move, identity doesn't) still counts as a change.
 func TestDMSMessageAxisFiresAlone(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 
@@ -109,6 +113,7 @@ func TestDMSMessageAxisFiresAlone(t *testing.T) {
 // The trigger is context on the message axis, not an axis of its own: a
 // changed why with an unchanged what is not a new message.
 func TestDMSTriggerAloneIsNotAChange(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 	retriggered := dmsNormal
@@ -121,6 +126,7 @@ func TestDMSTriggerAloneIsNotAChange(t *testing.T) {
 // Going blank moves two axes — display state and face message — and each
 // reports on its own.
 func TestDMSBlankFiresDisplayAndMessageAxes(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 	blank := dmsNormal
@@ -139,6 +145,7 @@ func TestDMSBlankFiresDisplayAndMessageAxes(t *testing.T) {
 }
 
 func TestDMSBothAxesChangeAtOnce(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 	both := dmsNormal
@@ -153,6 +160,7 @@ func TestDMSBothAxesChangeAtOnce(t *testing.T) {
 // Entering the error state reports once. A sign sitting broken must not
 // re-report every poll — that would be a fault storm, not information.
 func TestDMSActivationFailureReportsOnceOnTransition(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 
@@ -184,6 +192,7 @@ func TestDMSActivationFailureReportsOnceOnTransition(t *testing.T) {
 }
 
 func TestDMSUnknownActivationStatusDoesNotReportFailure(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	initial := dmsNormal
 	initial.MessageStatus = model.StatusUnknown
@@ -199,6 +208,7 @@ func TestDMSUnknownActivationStatusDoesNotReportFailure(t *testing.T) {
 
 // The iron rule, for this facet.
 func TestDMSFailedReadEmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 
@@ -215,6 +225,7 @@ func TestDMSFailedReadEmitsNothing(t *testing.T) {
 }
 
 func TestDMSEventsCarryDeviceKind(t *testing.T) {
+	t.Parallel()
 	e := NewEngine(NewDMSDiffer())
 	e.Apply(dmsSnap(t0, dmsNormal))
 	local := dmsNormal
