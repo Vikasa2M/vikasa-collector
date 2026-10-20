@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,17 +13,6 @@ import (
 
 	"github.com/Vikasa2M/vikasa-collector/internal/config"
 	"github.com/Vikasa2M/vikasa-collector/sdk/adapter"
-)
-
-// The NATS reference profile's Tier 2 rules, transcribed from
-// openits-models tools/conformance/tests/{subject,cetype}.go. Kept as literal
-// regexes rather than importing the harness: the harness is a Go program in a
-// module we must not import outside internal/wire (ADR 0002), and these are
-// the assertions it makes.
-var (
-	profileToken  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-	profileCEType = regexp.MustCompile(`^openits\.[a-z0-9-]+\.[a-z0-9-]+\.v\d+$`)
-	profileURN    = regexp.MustCompile(`^urn:openits:[a-z][a-z0-9-]*:[a-z0-9-]+:[a-z0-9-]+:[a-z0-9-]+:[A-Za-z0-9_-]+$`)
 )
 
 type observed struct {
@@ -115,7 +103,11 @@ devices:
 	return <-mu
 }
 
-func TestTier2ProfileConformance(t *testing.T) {
+// The profile's own Tier 2 checks (subject shape, ce-type, ce-source URN,
+// ce-id) run against a live stream in internal/wire/tier2, straight from the
+// harness. This test holds what the harness does not check: the binding's
+// header constants and the catalog/health content-type split.
+func TestCatalogEventsCarryTheBindingHeaders(t *testing.T) {
 	msgs := runCollectorAndCollect(t, 900*time.Millisecond)
 	if len(msgs) == 0 {
 		t.Fatal("no events published; the conformance assertions below would pass vacuously")
@@ -130,34 +122,12 @@ func TestTier2ProfileConformance(t *testing.T) {
 		}
 		ceType := m.headers.Get("ce-type")
 
-		// --- Subject grammar (TestSubject_SevenTokenShape / _OpenitsPrefix)
-		parts := strings.Split(m.subject, ".")
-		if len(parts) != 7 {
-			t.Errorf("%s: subject has %d tokens, want 7", m.subject, len(parts))
-		}
-		for _, p := range parts {
-			if !profileToken.MatchString(p) {
-				t.Errorf("%s: token %q is not lowercase-alnum-hyphen", m.subject, p)
-			}
-		}
-
-		// --- Envelope (TestCESource_URN / TestCEID_Present)
-		if src := m.headers.Get("ce-source"); !profileURN.MatchString(src) {
-			t.Errorf("%s: ce-source %q is not a well-formed openits URN", ceType, src)
-		}
-		if strings.TrimSpace(m.headers.Get("ce-id")) == "" {
-			t.Errorf("%s: ce-id is empty; replay dedup is impossible", ceType)
-		}
 		if v := m.headers.Get("ce-specversion"); v != "1.0" {
 			t.Errorf("%s: ce-specversion = %q", ceType, v)
 		}
 
-		// --- ce-type shape (TestCEType_OpenitsFormat)
 		if strings.HasPrefix(ceType, "openits.") {
 			sawOpenITS = true
-			if !profileCEType.MatchString(ceType) {
-				t.Errorf("ce-type %q does not match openits.<service>.<event>.v<major>", ceType)
-			}
 			if ds := m.headers.Get("ce-dataschema"); ds == "" {
 				t.Errorf("%s: catalog events must carry ce-dataschema", ceType)
 			}

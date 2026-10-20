@@ -159,16 +159,35 @@ this match what we pinned before," but "does this match an external
 contract this repo does not control the wording of." Two genuinely different
 things carry this name here, and conflating them is the mistake to avoid.
 
-**`internal/app/conformance_test.go`'s `TestTier2ProfileConformance`** boots
-the real collector against an embedded, in-process `nats-server` and asserts
-every published message obeys the NATS reference profile's Tier 2 rules —
-subject token shape, `ce-source` as a well-formed URN, `ce-id` present,
-`ce-specversion`, catalog ce-types matching `openits.<service>.<event>.v<n>`,
-and so on. The regexes are transcribed from openits-models'
-`tools/conformance` harness rather than importing it, because the harness is
-a Go program in a module this repo may not import outside `internal/wire`
-(ADR 0002). This test proves the bytes a consumer would actually receive off
-the wire are profile-shaped — nothing is stubbed below the emitter.
+**`internal/wire/tier2`'s `TestCollectorStreamPassesTheTier2Harness`**
+runs openits-models' own Tier 2 harness checks (`tools/conformance/tests`),
+imported rather than transcribed, against the catalog events a live
+collector publishes. That collector runs against an embedded, in-process
+`nats-server`, with scripted signal-controller and sign fixtures that drive
+every signal-control and DMS event family the emitter maps. Before any check
+runs, the test waits until every one of those families has been published, so
+no check can pass for want of the event it judges. It then runs the
+event-stream checks for each device kind's suite:
+
+- subject shape;
+- `ce-type` format;
+- `ce-source` URN;
+- `ce-id` present;
+- the preemption and DMS event shapes.
+
+The rest of each suite judges a device's YANG state tree, which a collector
+never publishes. Checks are looked up by name, so a check the harness renames
+or drops fails the test instead of silently not running. The test lives under
+`internal/wire` because that is the only place allowed to import
+openits-models (ADR 0002). Because the checks come from the pinned release,
+a pin bump that tightens the profile shows up here with no edit on our side.
+
+**`internal/app/conformance_test.go`** covers what the harness does not check:
+
+- the binding's header constants (`ce-specversion`, `ce-datacontenttype`, a
+  `ce-dataschema` on every catalog event);
+- that collector-owned health stays off the catalog subject space
+  (ADR 0011).
 
 **`internal/wire/health/conformance_test.go`** proves something narrower and
 different: that the health emitter's `CETypes()` declaration agrees, in both
