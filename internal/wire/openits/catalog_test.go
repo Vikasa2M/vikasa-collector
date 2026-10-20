@@ -134,9 +134,6 @@ var unmapped = map[string]unmappedReason{
 	"openits.ramp-metering.queue-override-cleared.v1":   serviceNotModeled,
 	"openits.ramp-metering.release-rate-changed.v1":     serviceNotModeled,
 	// reversible-lane
-	"openits.reversible-lane.fault-cleared.v1":         serviceNotModeled,
-	"openits.reversible-lane.fault-raised.v1":          serviceNotModeled,
-	"openits.reversible-lane.gate-status-changed.v1":   serviceNotModeled,
 	"openits.reversible-lane.lane-state-changed.v1":    serviceNotModeled,
 	"openits.reversible-lane.lcs-conflict-detected.v1": serviceNotModeled,
 	"openits.reversible-lane.transition-timeout.v1":    serviceNotModeled,

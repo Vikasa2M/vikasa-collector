@@ -54,9 +54,10 @@ const CapState Capability = 1 // implements StateReader
 
 A `Descriptor` is vendor × device kind, nothing else. `ntcip` is a vendor
 value like any other. It is the generic, standards-only implementation that
-other vendors' adapters are compared against. The two adapters in the repo
-are `ntcip-asc` and `ntcip-dms` (`ascDescriptor` in
-`internal/vendors/ntcip/asc.go`, `dmsDescriptor` in `dms.go`).
+other vendors' adapters are compared against. The adapters in the repo
+today are `ntcip-asc` and `ntcip-dms` (`ascDescriptor` in
+`internal/vendors/ntcip/asc.go`, `dmsDescriptor` in `dms.go`) and
+`cameleon-acs` (`acsDescriptor` in `internal/vendors/cameleon/acs.go`).
 
 `Capability` is a bitset with one bit today. Only the state-reading path
 exists, because

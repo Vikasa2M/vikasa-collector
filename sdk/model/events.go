@@ -311,3 +311,19 @@ type CCTVTourStateChanged struct {
 }
 
 func (CCTVTourStateChanged) EventKind() string { return "cctv-tour-state-changed" }
+
+// GateStatusChanged fires when one gate's position or operating mode
+// changes. Both axes are carried on the one event: the wire notification
+// is a single gate-status snapshot, and a poll that moves both is one
+// change. Gates are independent, so two gates moving in one poll produce
+// two events.
+type GateStatusChanged struct {
+	Base
+	GateID           string
+	Position         GatePosition
+	PreviousPosition GatePosition
+	Mode             GateMode
+	PreviousMode     GateMode
+}
+
+func (GateStatusChanged) EventKind() string { return "gate-status-changed" }

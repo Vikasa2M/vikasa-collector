@@ -2,12 +2,15 @@ package openits
 
 import (
 	"fmt"
+	"strings"
 
 	cctvv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/cctv/v1"
 	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
 	pcpv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/perception/v1"
+	rlv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/reversible_lane/v1"
 	scv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/signal_control/v1"
 	tsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/traffic_sensor/v1"
+	typesv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/types/v1"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -21,6 +24,7 @@ const (
 	cctvTypes       = "openits-cctv-types:"
 	trafficSenTypes = "openits-traffic-sensor-types:"
 	perceptionTypes = "openits-perception-types:"
+	rlTypes         = "openits-reversible-lane-types:"
 
 	// openits-types is the foundation layer. object-class and its object-*
 	// leaves lived in openits-perception-types until the v0.3.0 hoist
@@ -111,7 +115,7 @@ func flashCauseIdentity(c model.FlashCause) (string, bool) {
 //
 // CategoryUnknown is the zero value, so it is the common case for any adapter
 // that has not classified its faults yet; it must not silently suppress them.
-func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) {
+func faultKindIdentity(c model.FaultCategory, deviceKind, faultID string) (string, bool) {
 	switch deviceKind {
 	case "asc":
 		switch c {
@@ -190,10 +194,87 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) 
 		default:
 			return dmsTypes + "dms-fault-event-kind", true
 		}
+	case "acs":
+		// ACS gate/cabinet alarms share CategoryCabinet on the domain side;
+		// leaf identities live under openits-reversible-lane-types and are
+		// selected from the structured FaultID the Cameleon adapter emits.
+		// Clears carry Category (ADR 0024); CategoryUnknown still maps to base.
+		if c == model.CategoryUnknown {
+			return rlTypes + "reversible-lane-fault-event-kind", true
+		}
+		switch {
+		case strings.HasSuffix(faultID, "/failed-to-close"):
+			return rlTypes + "reversible-lane-fault-gate-failed-to-close", true
+		case strings.HasSuffix(faultID, "/failed-to-open"):
+			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
+		case strings.HasSuffix(faultID, "/estop") && strings.HasPrefix(faultID, "gate/"):
+			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
+		default:
+			// Cabinet faults, plc/*, command-refused, invalid-inputs, and any
+			// other undeclared ACS fault use the service base identity in v0.8.0.
+			return rlTypes + "reversible-lane-fault-event-kind", true
+		}
 	default:
 		return "", false
 	}
 }
+
+// gateComponent names the gate a gate-scoped fault concerns. Cabinet faults
+// and any id that is not gate/<gate-id>/<suffix> return nil.
+func gateComponent(faultID string) *typesv1.ComponentRef {
+	const prefix = "gate/"
+	if !strings.HasPrefix(faultID, prefix) {
+		return nil
+	}
+	id, _, ok := strings.Cut(faultID[len(prefix):], "/")
+	if !ok || id == "" {
+		return nil
+	}
+	return &typesv1.ComponentRef{
+		ComponentClass: rlTypes + "rl-component-gate",
+		ComponentId:    id,
+	}
+}
+
+// gatePositionFor maps domain gate motion/rest state onto the wire enum.
+func gatePositionFor(p model.GatePosition) rlv1.GatePosition {
+	switch p {
+	case model.GatePositionClosing:
+		return rlv1.GatePosition_GATE_POSITION_CLOSING
+	case model.GatePositionClosed:
+		return rlv1.GatePosition_GATE_POSITION_CLOSED
+	case model.GatePositionOpening:
+		return rlv1.GatePosition_GATE_POSITION_OPENING
+	case model.GatePositionOpened:
+		return rlv1.GatePosition_GATE_POSITION_OPEN
+	default:
+		return rlv1.GatePosition_GATE_POSITION_UNKNOWN
+	}
+}
+
+// gateOperatingModeFor maps domain gate mode onto the identityref string.
+func gateOperatingModeFor(m model.GateMode) string {
+	switch m {
+	case model.GateModeAuto:
+		return rlTypes + "reversible-lane-gate-mode-automatic"
+	case model.GateModeManual, model.GateModeManualNonInterlocked:
+		return rlTypes + "reversible-lane-gate-mode-manual"
+	case model.GateModeOffline:
+		return rlTypes + "reversible-lane-gate-mode-offline"
+	default:
+		return ""
+	}
+}
+
+// interlockBypassedFor reports Cameleon manual-non-interlocked mode only.
+func interlockBypassedFor(m model.GateMode) *bool {
+	if m == model.GateModeManualNonInterlocked {
+		return protoBool(true)
+	}
+	return nil
+}
+
+func protoBool(v bool) *bool { return &v }
 
 // dmsControlModeIdentity maps who is driving the sign. There is no "unknown"
 // member upstream (local/external/central/central-override/simulation/other),
@@ -557,4 +638,8 @@ var dataSchemaFor = map[string]string{
 
 	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-10-17/",
 	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-10-13/",
+
+	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-10-15/",
 }

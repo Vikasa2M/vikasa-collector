@@ -46,7 +46,7 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 		// faultKindIdentity falls back to the service base identity. It only
 		// fails for a device kind this emitter does not serve, which the
 		// ce-type lookup above has already excluded.
-		kind, ok := faultKindIdentity(v.Category, v.DeviceKind)
+		kind, ok := faultKindIdentity(v.Category, v.DeviceKind, v.FaultID)
 		if !ok {
 			return nil, false
 		}
@@ -61,10 +61,11 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Severity:       severityFor(v.Severity),
 			Description:    optString(v.Description),
 			FirstObserved:  optTime(v.FirstObserved),
+			Component:      gateComponent(v.FaultID),
 		}
 
 	case model.FaultCleared:
-		kind, ok := faultKindIdentity(v.Category, v.DeviceKind)
+		kind, ok := faultKindIdentity(v.Category, v.DeviceKind, v.FaultID)
 		if !ok {
 			return nil, false
 		}
@@ -81,6 +82,7 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Sequence:       e.nextSequence(v.DeviceID),
 			FaultId:        v.FaultID,
 			FirstObserved:  optTime(v.FirstObserved),
+			Component:      gateComponent(v.FaultID),
 		}
 	default:
 		return nil, false

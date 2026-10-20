@@ -31,8 +31,9 @@ go run ./cmd/collector -config collector.yaml   # needs a real broker AND real d
   `StateReader` contract, registry, strict connection-block helpers),
   `sdk/model` (facets and domain events), `sdk/transport/snmp` (+ its
   `snmptest` replay fake).
-- `internal/vendors/ntcip` — the only adapters today: `ntcip-asc` and
-  `ntcip-dms`.
+- `internal/vendors/ntcip` — `ntcip-asc` and `ntcip-dms`.
+- `internal/vendors/cameleon` — `cameleon-acs` (reversible-lane gates over
+  GE SRTP).
 - `internal/synth` — one differ per facet kind. `internal/durable` keeps
   its previous state in the JetStream KV bucket `VIKASA_SYNTH_STATE`.
 - `internal/wire/openits` — the openits-models emitter (`encode_<family>.go`

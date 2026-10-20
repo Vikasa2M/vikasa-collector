@@ -201,6 +201,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 		synth.NewZoneIncidentDiffer(),
 		synth.NewZoneIntervalDiffer(),
 		synth.NewCCTVDiffer(),
+		synth.NewGateDiffer(),
 	)
 	engine.WithRejectHook(func(deviceID string, kind model.Kind, got string) {
 		counters.FacetsRejected.Add(1)
