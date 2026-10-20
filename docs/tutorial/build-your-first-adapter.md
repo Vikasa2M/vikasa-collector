@@ -50,7 +50,7 @@ output reads something like:
 
 ```
 ./scripts/lint-boundary.sh
-lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin v0.5.0) against openits-models
+lint-boundary: clean (2 roots transitively, ... packages for direct imports, pin v0.7.0) against openits-models
 lint-boundary selftest: Rule A fires correctly
 lint-boundary replace-rule selftest: Rule C fires correctly
 lint-boundary tag-rule selftest: Rule D fires correctly

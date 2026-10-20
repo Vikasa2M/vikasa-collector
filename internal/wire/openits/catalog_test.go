@@ -53,7 +53,7 @@ func pinnedCatalog(t *testing.T) []string {
 // subscribe to by name — the collector inventing wire identity (ADR 0016).
 func TestEmittedCETypesAreInPinnedCatalog(t *testing.T) {
 	cat := pinnedCatalog(t)
-	for _, ceType := range New("x").CETypes() {
+	for _, ceType := range New("x", testEpoch).CETypes() {
 		if _, found := slices.BinarySearch(cat, ceType); !found {
 			t.Errorf("emitter produces %q, which the pinned openits-models release does not declare", ceType)
 		}
@@ -65,7 +65,7 @@ func TestEmittedCETypesAreInPinnedCatalog(t *testing.T) {
 // a type the release added and the emitter never mapped was invisible to
 // every check in this repo.
 func TestEveryCatalogCETypeIsMappedOrAllowlisted(t *testing.T) {
-	emitted := New("x").CETypes()
+	emitted := New("x", testEpoch).CETypes()
 	for _, ceType := range pinnedCatalog(t) {
 		if slices.Contains(emitted, ceType) {
 			continue
@@ -80,7 +80,7 @@ func TestEveryCatalogCETypeIsMappedOrAllowlisted(t *testing.T) {
 // or that the pinned release no longer declares, is a stale claim.
 func TestUnmappedAllowlistIsCurrent(t *testing.T) {
 	cat := pinnedCatalog(t)
-	emitted := New("x").CETypes()
+	emitted := New("x", testEpoch).CETypes()
 	for ceType := range unmapped {
 		if slices.Contains(emitted, ceType) {
 			t.Errorf("%q is mapped now; delete it from `unmapped`", ceType)

@@ -314,8 +314,9 @@ func incidentTypeIdentity(t model.IncidentType) string {
 		return perceptionTypes + "incident-slowed-traffic"
 	default:
 		// The upstream set has no "unknown incident type", so an unclassified
-		// incident is left EMPTY rather than mapped to a specific condition.
-		// The incident is still reported; what it is remains unstated.
+		// incident is left absent (the caller wraps this in optString) rather
+		// than mapped to a specific condition. The incident is still reported;
+		// what it is remains unstated.
 		return ""
 	}
 }
@@ -343,26 +344,26 @@ func objectClassIdentity(c model.ObjectClass) string {
 	}
 }
 
-// incidentSeverityFor maps the domain severity to the wire enum.
+// incidentSeverityFor maps the domain severity to the wire enum, or nil
+// when the adapter did not report one.
 //
-// The wire has no "unreported": its zero is MINOR, so an unset field is a
-// positive claim that the incident is minor. SeverityUnreported therefore maps
-// to MINOR — the wire's own default — because there is nothing else to map it
-// to, and this is a DOWNGRADE that adapters must not rely on. An adapter
-// reporting a safety-relevant incident is obliged to set severity; leaving it
-// unreported silently understates a wrong-way vehicle.
-//
-// This is the third upstream enum with no unspecified zero, after
-// FaultSeverity and DataQuality. Raising it upstream is tracked.
-func incidentSeverityFor(s model.IncidentSeverity) pcpv1.IncidentSeverity {
+// Before openits-models v0.6.0 the field had no presence and its zero was
+// MINOR, so an unreported severity could only be sent as a claim that the
+// incident was minor — understating a wrong-way vehicle. With explicit
+// presence it is simply absent, which is what the adapter actually knows.
+func incidentSeverityFor(s model.IncidentSeverity) *pcpv1.IncidentSeverity {
+	var w pcpv1.IncidentSeverity
 	switch s {
+	case model.IncidentMinor:
+		w = pcpv1.IncidentSeverity_INCIDENT_SEVERITY_MINOR
 	case model.IncidentIntermediate:
-		return pcpv1.IncidentSeverity_INCIDENT_SEVERITY_INTERMEDIATE
+		w = pcpv1.IncidentSeverity_INCIDENT_SEVERITY_INTERMEDIATE
 	case model.IncidentMajor:
-		return pcpv1.IncidentSeverity_INCIDENT_SEVERITY_MAJOR
+		w = pcpv1.IncidentSeverity_INCIDENT_SEVERITY_MAJOR
 	default:
-		return pcpv1.IncidentSeverity_INCIDENT_SEVERITY_MINOR
+		return nil
 	}
+	return &w
 }
 
 // hundredths renders a hundredths-of-a-unit integer as the wire's decimal64
@@ -371,23 +372,26 @@ func hundredths(v uint32) string {
 	return fmt.Sprintf("%d.%02d", v/100, v%100)
 }
 
-// dataQualityFor maps the sensor's own assessment to the wire enum.
+// dataQualityFor maps the sensor's own assessment to the wire enum, or nil
+// when the sensor did not give one.
 //
-// The wire has no "unknown": its zero value is VALID, so an unset field
-// serializes as a positive claim that the data is good. QualityUnknown
-// therefore maps to SUSPECT — not because the sensor flagged anything, but
-// because the alternative is asserting a quality nobody vouched for. A
-// consumer that discounts good data loses a little precision; one that trusts
-// unvalidated data loses correctness.
-func dataQualityFor(q model.DataQuality) tsv1.DataQuality {
+// Before openits-models v0.6.0 the field had no presence and its zero was
+// VALID, so an unknown quality had to be downgraded to SUSPECT to avoid
+// asserting data nobody vouched for. With explicit presence, unknown is
+// absent: no claim either way.
+func dataQualityFor(q model.DataQuality) *tsv1.DataQuality {
+	var w tsv1.DataQuality
 	switch q {
 	case model.QualityValid:
-		return tsv1.DataQuality_DATA_QUALITY_VALID
+		w = tsv1.DataQuality_DATA_QUALITY_VALID
+	case model.QualitySuspect:
+		w = tsv1.DataQuality_DATA_QUALITY_SUSPECT
 	case model.QualityInvalid:
-		return tsv1.DataQuality_DATA_QUALITY_INVALID
+		w = tsv1.DataQuality_DATA_QUALITY_INVALID
 	default:
-		return tsv1.DataQuality_DATA_QUALITY_SUSPECT
+		return nil
 	}
+	return &w
 }
 
 // memoryTypeFor maps the domain memory bank to the wire enum. Explicit switch,
@@ -410,30 +414,39 @@ func memoryTypeFor(m model.MessageMemoryType) dmsv1.MessageMemoryType {
 	}
 }
 
-// errorTypeFor maps the domain MULTI error to the wire enum.
+// optMemoryType is memoryTypeFor with presence: an unknown bank is absent,
+// not an explicit UNSPECIFIED, which would claim more than the sign said.
+func optMemoryType(m model.MessageMemoryType) *dmsv1.MessageMemoryType {
+	if m == model.MemoryUnknown {
+		return nil
+	}
+	return memoryTypeFor(m).Enum()
+}
+
+// errorTypeFor maps the domain MULTI error to its activation-error identity
+// (openits-models v0.6.0 replaced the closed ErrorType enum with an identity
+// hierarchy; the member-for-member mapping is the upstream migration table).
 //
-// SyntaxErrorNone is the awkward one. dmsv1.ErrorType has no "none" member and
-// its zero is SYNTAX, so a domain None would encode as a *syntax error* if
-// this were a cast — asserting a specific failure the sign never reported. It
-// maps to OTHER instead: the event only exists because activation failed, so
-// "failed, cause unreported" is true where "syntax error" is not. Same shape
-// of decision as the fault-category fallback.
-func errorTypeFor(e model.MultiSyntaxError) dmsv1.ErrorType {
+// SyntaxErrorNone maps to activation-error-other, not to syntax: the event
+// only exists because activation failed, so "failed, cause unreported" is
+// true where "syntax error" is not. Same shape of decision as the
+// fault-category fallback.
+func errorTypeFor(e model.MultiSyntaxError) string {
 	switch e {
 	case model.SyntaxErrorSyntax:
-		return dmsv1.ErrorType_ERROR_TYPE_SYNTAX
+		return dmsTypes + "activation-error-syntax"
 	case model.SyntaxErrorUnsupportedTag:
-		return dmsv1.ErrorType_ERROR_TYPE_UNSUPPORTED_TAG
+		return dmsTypes + "activation-error-unsupported-tag"
 	case model.SyntaxErrorFontNotFound:
-		return dmsv1.ErrorType_ERROR_TYPE_FONT_NOT_FOUND
+		return dmsTypes + "activation-error-font-not-defined"
 	case model.SyntaxErrorGraphicNotFound:
-		return dmsv1.ErrorType_ERROR_TYPE_GRAPHIC_NOT_FOUND
+		return dmsTypes + "activation-error-graphic-not-defined"
 	case model.SyntaxErrorTooLong:
-		return dmsv1.ErrorType_ERROR_TYPE_TOO_LONG
+		return dmsTypes + "activation-error-text-too-big"
 	case model.SyntaxErrorHardware:
-		return dmsv1.ErrorType_ERROR_TYPE_HARDWARE
+		return dmsTypes + "activation-error-hardware"
 	default:
-		return dmsv1.ErrorType_ERROR_TYPE_OTHER
+		return dmsTypes + "activation-error-other"
 	}
 }
 

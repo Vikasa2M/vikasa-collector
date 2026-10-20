@@ -26,21 +26,23 @@ func (e *emitter) encodeCCTV(ev model.Event) (proto.Message, bool) {
 		if !ok {
 			return nil, false
 		}
-		// previous_state has no "unknown" either, so a tour whose prior state
-		// we never observed encodes as STOPPED. That is only reachable if a
-		// differ emitted a transition from an unknown state, which this one
-		// does not — new tours stay silent until they have a known prior.
-		from, _ := tourRunStateFor(v.From)
-		msg = &cctvv1.TourStateChanged{
+		// previous_state is optional: a prior state we never observed is
+		// absent rather than a claim the tour was stopped (the differ only
+		// reports transitions from a known prior today, so this is defence).
+		tc := &cctvv1.TourStateChanged{
 			Kind:           cctvTypes + "cctv-tour-state-changed",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			TourId:         v.TourID,
-			PreviousState:  from,
 			CurrentState:   to,
 		}
+		if from, ok := tourRunStateFor(v.From); ok {
+			tc.PreviousState = from.Enum()
+		}
+		msg = tc
 	default:
 		return nil, false
 	}

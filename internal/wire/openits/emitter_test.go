@@ -26,7 +26,7 @@ import (
 // intermediate the emitter happens to hold.
 func decodeModeChanged(t *testing.T, ev model.Event, collectorID string) *commonv1.ModeChanged {
 	t.Helper()
-	enc, ok, err := New(collectorID).Encode(ev)
+	enc, ok, err := New(collectorID, testEpoch).Encode(ev)
 	if err != nil {
 		t.Fatalf("Encode returned error: %v", err)
 	}
@@ -49,7 +49,7 @@ func base(deviceID, deviceKind string) model.Base {
 }
 
 func TestEncode_ModeChangedOnASC_ClaimsSignalControlCEType(t *testing.T) {
-	em := New("cabinet-poller-1")
+	em := New("cabinet-poller-1", testEpoch)
 
 	enc, ok, err := em.Encode(model.ModeChanged{
 		Base: base("asc-main-and-5th", "asc"),
@@ -79,11 +79,11 @@ func TestEncode_ModeChangedOnASC_MapsControllerModeIdentities(t *testing.T) {
 		To:   model.ModeNormal,
 	}, "cabinet-poller-1")
 
-	if want := "openits-signal-control-types:mode-flash"; got.GetPrior() != want {
-		t.Errorf("prior = %q, want %q", got.GetPrior(), want)
+	if want := "openits-signal-control-types:mode-flash"; got.GetPreviousMode() != want {
+		t.Errorf("prior = %q, want %q", got.GetPreviousMode(), want)
 	}
-	if want := "openits-signal-control-types:mode-free"; got.GetCurrent() != want {
-		t.Errorf("current = %q, want %q", got.GetCurrent(), want)
+	if want := "openits-signal-control-types:mode-free"; got.GetMode() != want {
+		t.Errorf("current = %q, want %q", got.GetMode(), want)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestEncode_UnrepresentableTargetIsNotClaimed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, ok, err := New("cabinet-poller-1").Encode(tc.ev)
+			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(tc.ev)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
@@ -140,11 +140,11 @@ func TestEncode_ModeChangedFromUnmappable_StillClaimedWithPriorAbsent(t *testing
 		To:   model.ModeFlash,
 	}, "cabinet-poller-1")
 
-	if got.GetPrior() != "" {
-		t.Errorf("prior = %q, want empty for an unmappable From", got.GetPrior())
+	if got.GetPreviousMode() != "" {
+		t.Errorf("prior = %q, want empty for an unmappable From", got.GetPreviousMode())
 	}
-	if want := "openits-signal-control-types:mode-flash"; got.GetCurrent() != want {
-		t.Errorf("current = %q, want %q", got.GetCurrent(), want)
+	if want := "openits-signal-control-types:mode-flash"; got.GetMode() != want {
+		t.Errorf("current = %q, want %q", got.GetMode(), want)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestEncode_SequenceIncrementsPerDeviceIndependently(t *testing.T) {
 	// must not share one: consumers detect loss in transit by spotting a gap
 	// in a single device's run, so a shared counter would look like constant
 	// loss on both.
-	em := New("cabinet-poller-1")
+	em := New("cabinet-poller-1", testEpoch)
 	seq := func(deviceID string) uint64 {
 		t.Helper()
 		enc, ok, err := em.Encode(model.ModeChanged{
@@ -216,7 +216,7 @@ func TestEncode_SequenceIsSafeUnderConcurrentDevices(t *testing.T) {
 	// Runners call Encode concurrently, one goroutine per device. Without
 	// guarding, concurrent map writes crash the process outright rather than
 	// merely producing a wrong number.
-	em := New("cabinet-poller-1")
+	em := New("cabinet-poller-1", testEpoch)
 	const devices, perDevice = 8, 50
 
 	var wg sync.WaitGroup
@@ -260,7 +260,7 @@ func TestEncode_SequenceIsSafeUnderConcurrentDevices(t *testing.T) {
 // decodeFaultRaised encodes ev and unmarshals the wire payload back.
 func decodeFaultRaised(t *testing.T, ev model.Event) (*commonv1.FaultRaised, string) {
 	t.Helper()
-	enc, ok, err := New("cabinet-poller-1").Encode(ev)
+	enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(ev)
 	if err != nil {
 		t.Fatalf("Encode returned error: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestEncode_FaultRaised_MapsSeverityAndCategory(t *testing.T) {
 
 func decodeDMSMode(t *testing.T, ev model.Event) (*commonv1.ModeChanged, string) {
 	t.Helper()
-	enc, ok, err := New("cabinet-poller-1").Encode(ev)
+	enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(ev)
 	if err != nil {
 		t.Fatalf("Encode returned error: %v", err)
 	}
@@ -360,17 +360,17 @@ func TestEncode_BothDMSModeAxes_ShareOneCEType(t *testing.T) {
 	if w := "openits-dms-types:dms-mode-event-kind"; ctrl.GetKind() != w || disp.GetKind() != w {
 		t.Errorf("kind = %q / %q, want both %q", ctrl.GetKind(), disp.GetKind(), w)
 	}
-	if w := "openits-dms-types:dms-control-local"; ctrl.GetCurrent() != w {
-		t.Errorf("control current = %q, want %q", ctrl.GetCurrent(), w)
+	if w := "openits-dms-types:dms-control-local"; ctrl.GetMode() != w {
+		t.Errorf("control current = %q, want %q", ctrl.GetMode(), w)
 	}
-	if w := "openits-dms-types:dms-control-central"; ctrl.GetPrior() != w {
-		t.Errorf("control prior = %q, want %q", ctrl.GetPrior(), w)
+	if w := "openits-dms-types:dms-control-central"; ctrl.GetPreviousMode() != w {
+		t.Errorf("control prior = %q, want %q", ctrl.GetPreviousMode(), w)
 	}
-	if w := "openits-dms-types:mode-blank"; disp.GetCurrent() != w {
-		t.Errorf("display current = %q, want %q", disp.GetCurrent(), w)
+	if w := "openits-dms-types:mode-blank"; disp.GetMode() != w {
+		t.Errorf("display current = %q, want %q", disp.GetMode(), w)
 	}
-	if w := "openits-dms-types:mode-normal"; disp.GetPrior() != w {
-		t.Errorf("display prior = %q, want %q", disp.GetPrior(), w)
+	if w := "openits-dms-types:mode-normal"; disp.GetPreviousMode() != w {
+		t.Errorf("display prior = %q, want %q", disp.GetPreviousMode(), w)
 	}
 }
 
@@ -382,15 +382,15 @@ func TestEncode_DMSDisplayUnknown_IsMappable(t *testing.T) {
 		From: model.DisplayNormal,
 		To:   model.DisplayUnknown,
 	})
-	if w := "openits-dms-types:mode-unknown"; got.GetCurrent() != w {
-		t.Errorf("current = %q, want %q", got.GetCurrent(), w)
+	if w := "openits-dms-types:mode-unknown"; got.GetMode() != w {
+		t.Errorf("current = %q, want %q", got.GetMode(), w)
 	}
 }
 
 // encodeOK is the generic "claim it and hand me the bytes" helper.
 func encodeOK(t *testing.T, ev model.Event, into proto.Message) string {
 	t.Helper()
-	enc, ok, err := New("cabinet-poller-1").Encode(ev)
+	enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(ev)
 	if err != nil {
 		t.Fatalf("Encode returned error: %v", err)
 	}
@@ -529,8 +529,8 @@ func TestEncode_DMSMessageActivationFailed(t *testing.T) {
 	if got.GetAttemptedSlotNumber() != 7 {
 		t.Errorf("slot = %d, want 7", got.GetAttemptedSlotNumber())
 	}
-	if got.GetErrorType() != dmsv1.ErrorType_ERROR_TYPE_FONT_NOT_FOUND {
-		t.Errorf("error_type = %v", got.GetErrorType())
+	if want := "openits-dms-types:activation-error-font-not-defined"; got.GetErrorType() != want {
+		t.Errorf("error_type = %q, want %q", got.GetErrorType(), want)
 	}
 	if got.GetErrorPosition() != 12 {
 		t.Errorf("error_position = %d, want 12", got.GetErrorPosition())
@@ -538,7 +538,7 @@ func TestEncode_DMSMessageActivationFailed(t *testing.T) {
 }
 
 func TestCETypes_IsCompleteSortedAndDeduped(t *testing.T) {
-	got := New("cabinet-poller-1").CETypes()
+	got := New("cabinet-poller-1", testEpoch).CETypes()
 
 	want := []string{
 		"openits.cctv.fault-cleared.v1",
@@ -591,7 +591,7 @@ func TestCETypes_CoversEveryRoutableCEType(t *testing.T) {
 	// does not report is one that was never checked, and it surfaces at 3am as
 	// an unroutable event rather than at boot.
 	reported := make(map[string]bool)
-	for _, ct := range New("cabinet-poller-1").CETypes() {
+	for _, ct := range New("cabinet-poller-1", testEpoch).CETypes() {
 		reported[ct] = true
 	}
 	for k, ceType := range ceTypeFor {
@@ -641,7 +641,7 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 		"https://schemas.open-its.org/openits-dms-events/2026-08-27/",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, ok, err := New("cabinet-poller-1").Encode(tc.ev)
+			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(tc.ev)
 			if err != nil || !ok {
 				t.Fatalf("Encode: ok=%v err=%v", ok, err)
 			}
@@ -655,7 +655,7 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 func TestDataSchema_CoversEveryCEType(t *testing.T) {
 	// A ce-type with no constant would publish without ce-dataschema, which
 	// the profile requires. Catching that here beats catching it per-event.
-	for _, ceType := range New("x").CETypes() {
+	for _, ceType := range New("x", testEpoch).CETypes() {
 		if dataSchemaFor[ceType] == "" {
 			t.Errorf("ce-type %q has no ce-dataschema constant", ceType)
 		}
@@ -666,7 +666,7 @@ func TestEncode_IdentityExcludesProducerAssignedLeaves(t *testing.T) {
 	// ce-id is derived from Identity, not Data. Two encodings of the SAME
 	// occurrence differ in sequence (the counter advances) and would otherwise
 	// produce different ids, destroying restart-invariance and replay dedup.
-	em := New("cabinet-poller-1")
+	em := New("cabinet-poller-1", testEpoch)
 	ev := model.ModeChanged{
 		Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeNormal,
 	}
@@ -688,8 +688,8 @@ func TestEncode_IdentityExcludesProducerAssignedLeaves(t *testing.T) {
 	if err := proto.Unmarshal(first.Identity, &id); err != nil {
 		t.Fatalf("identity is not a valid payload: %v", err)
 	}
-	if id.GetCurrent() != "openits-signal-control-types:mode-free" {
-		t.Errorf("identity lost the event's substance: current = %q", id.GetCurrent())
+	if id.GetMode() != "openits-signal-control-types:mode-free" {
+		t.Errorf("identity lost the event's substance: current = %q", id.GetMode())
 	}
 	if id.GetSequence() != 0 || id.GetObservedBy() != "" {
 		t.Errorf("identity retained producer-assigned leaves: sequence=%d observed_by=%q",
@@ -700,7 +700,7 @@ func TestEncode_IdentityExcludesProducerAssignedLeaves(t *testing.T) {
 func TestEncode_IdentityIsSensitiveToRealChanges(t *testing.T) {
 	// The flip side: clearing bookkeeping must not blur genuinely different
 	// events into one id.
-	em := New("cabinet-poller-1")
+	em := New("cabinet-poller-1", testEpoch)
 	a, _, _ := em.Encode(model.ModeChanged{
 		Base: base("asc-1", "asc"), From: model.ModeFlash, To: model.ModeNormal,
 	})
@@ -1023,11 +1023,11 @@ func TestEncode_CCTVControlModeChanged(t *testing.T) {
 	if want := "openits-cctv-types:cctv-mode-event-kind"; got.GetKind() != want {
 		t.Errorf("kind = %q, want %q", got.GetKind(), want)
 	}
-	if want := "openits-cctv-types:cctv-control-central"; got.GetPrior() != want {
-		t.Errorf("prior = %q, want %q", got.GetPrior(), want)
+	if want := "openits-cctv-types:cctv-control-central"; got.GetPreviousMode() != want {
+		t.Errorf("prior = %q, want %q", got.GetPreviousMode(), want)
 	}
-	if want := "openits-cctv-types:cctv-control-local"; got.GetCurrent() != want {
-		t.Errorf("current = %q, want %q", got.GetCurrent(), want)
+	if want := "openits-cctv-types:cctv-control-local"; got.GetMode() != want {
+		t.Errorf("current = %q, want %q", got.GetMode(), want)
 	}
 }
 
@@ -1065,7 +1065,7 @@ func TestEncode_DeviceStatusChangedIsCommHealth(t *testing.T) {
 		{false, "openits-common-comm-health-events:comm-lost"},
 		{true, "openits-common-comm-health-events:comm-restored"},
 	} {
-		enc, ok, err := New("cabinet-poller-1").Encode(model.DeviceStatusChanged{
+		enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.DeviceStatusChanged{
 			Base:      model.Base{DeviceID: "asc-1", DeviceKind: "asc", OccurredAt: at},
 			Reachable: tc.reachable, Reason: "read timeout", ConsecutiveFailures: 1,
 		})
@@ -1091,10 +1091,14 @@ func TestEncode_DeviceStatusChangedIsCommHealth(t *testing.T) {
 // health.device-status-changed fallback claims it instead of the event being
 // dropped (ADR 0019 as amended for kinds the catalog has not fanned out to).
 func TestEncode_DeviceStatusChangedDeclinedWithoutACatalogChannel(t *testing.T) {
-	_, ok, err := New("cabinet-poller-1").Encode(model.DeviceStatusChanged{
+	_, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.DeviceStatusChanged{
 		Base: model.Base{DeviceID: "dms-1", DeviceKind: "dms", OccurredAt: time.Now()}, Reachable: false,
 	})
 	if err != nil || ok {
 		t.Fatalf("dms device status: ok=%v err=%v, want declined", ok, err)
 	}
 }
+
+// testEpoch is the sequence-epoch every test emitter stamps. It is cleared
+// from identity bytes, so it shows only in Data.
+const testEpoch = "01TESTEPOCH0000000000000000"

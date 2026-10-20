@@ -22,7 +22,7 @@ func (e *emitter) encodeZoneOccupancy(ev model.Event) (proto.Message, bool) {
 				// per-class confidence, and zero is the wire's "not stated"
 				// for a uint32 count of confidence, not a claim of none.
 				classes = append(classes, &zocv1.ObservedClass{
-					Class: objectClassIdentity(cc.Class), Count: cc.Count,
+					Class: proto.String(objectClassIdentity(cc.Class)), Count: proto.Uint32(cc.Count),
 				})
 			}
 			// PeakOccupancyCount is left unset for the same reason: no
@@ -30,19 +30,20 @@ func (e *emitter) encodeZoneOccupancy(ev model.Event) (proto.Message, bool) {
 			// one from the mean would be a wrong value rather than a missing
 			// one.
 			zones = append(zones, &zocv1.Zone{
-				ZoneId:            z.ZoneID,
-				ObservedCount:     z.ObservedCount,
-				OccupancyPercent:  occupancyPercent(z.OccupancyTenths),
+				ZoneId:            proto.String(z.ZoneID),
+				ObservedCount:     proto.Uint32(z.ObservedCount),
+				OccupancyPercent:  proto.String(occupancyPercent(z.OccupancyTenths)),
 				ObservedClass:     classes,
 				IntervalStart:     timestamppb.New(v.IntervalStart.UTC()),
-				IntervalDurationS: wholeSeconds(v.IntervalDuration),
+				IntervalDurationS: proto.Uint32(wholeSeconds(v.IntervalDuration)),
 			})
 		}
 		msg = &zocv1.ZoneOccupancyIntervalReport{
 			Kind:           zoneOccTypes + "zoc-zone-occupancy-interval-report",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			Zone:           zones,
 		}

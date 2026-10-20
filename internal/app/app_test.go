@@ -280,12 +280,12 @@ func TestEncodeFailureLogsToInjectedLoggerWithDevice(t *testing.T) {
 // passed validation would fail at the first point it matters.
 func TestEverySupportedModelVersionSelectsAnEmitter(t *testing.T) {
 	for _, v := range wire.SupportedModelVersions {
-		em, err := catalogEmitter(v, "cab-1-collector")
+		em, err := catalogEmitter(v, "cab-1-collector", "test-epoch")
 		if err != nil || em == nil {
 			t.Errorf("catalogEmitter(%q) = %v, %v; want an emitter", v, em, err)
 		}
 	}
-	if _, err := catalogEmitter("openits/v0", "cab-1-collector"); err == nil {
+	if _, err := catalogEmitter("openits/v0", "cab-1-collector", "test-epoch"); err == nil {
 		t.Error("catalogEmitter accepted a version no emitter implements")
 	}
 }
