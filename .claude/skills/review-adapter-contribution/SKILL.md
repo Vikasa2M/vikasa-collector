@@ -105,7 +105,12 @@ detail — it means the domain model is being bent to fit a device.
 **Connection parsing rejects malformed config at build time** rather than
 dialing something broken and failing later — the
 [config-is-the-trust-boundary row](../../../docs/reference/invariants.md#config-is-the-trust-boundary-boot-fails-on-the-unrecognized)
-applied to the adapter's own `connection` block.
+applied to the adapter's own `connection` block. Concretely, every block
+goes through `adapter.OnlyKeys`, every field is read with
+`adapter.OptString` (or an equally strict typed read), and no type
+assertion on a config value discards its `ok`. Request changes on
+`v, _ := raw["k"].(string)`: a YAML number or a typo becomes a silent
+default.
 
 **Scope creep.** An adapter contribution should touch:
 

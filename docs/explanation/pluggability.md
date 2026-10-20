@@ -135,17 +135,27 @@ below) and stops there. Everything past that point belongs to the adapter.
 
 ```go
 func parseSNMPBlock(conn map[string]any) (snmp.DialConfig, error) {
+	if err := adapter.OnlyKeys("connection", conn, "snmp"); err != nil {
+		return snmp.DialConfig{}, err
+	}
 	raw, ok := conn["snmp"].(map[string]any)
 	if !ok {
-		return snmp.DialConfig{}, fmt.Errorf("connection.snmp block required")
+		return snmp.DialConfig{}, errors.New("connection.snmp block required")
 	}
-	addr, _ := raw["address"].(string)
-	if addr == "" {
-		return snmp.DialConfig{}, fmt.Errorf("connection.snmp.address required")
+	if err := adapter.OnlyKeys("connection.snmp", raw, "address", "community", "version"); err != nil {
+		return snmp.DialConfig{}, err
 	}
+	addr, err := adapter.OptString("connection.snmp", raw, "address")
 	...
 }
 ```
+
+Unread does not mean unchecked: the adapter is the trust boundary for its
+own block ([ADR 0014](../adr/0014-config-is-the-trust-boundary.md)).
+`adapter.OnlyKeys` refuses a key the adapter does not know, and
+`adapter.OptString` refuses a known key of the wrong type. The lenient
+`raw["address"].(string)` with the `ok` discarded does neither: a
+misspelling or a YAML number silently becomes the default.
 
 A REST-polling adapter's factory would look for a `rest` key instead, with
 its own required fields, and the core would never need to change to
