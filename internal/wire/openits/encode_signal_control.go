@@ -36,9 +36,10 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 			Kind:           scTypes + "sc-coordination-event-kind",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			PlanId:         v.ToPlanID,
+			PlanId:         proto.Uint32(v.ToPlanID),
 		}
 
 	case model.OperationalStatusReport:
@@ -54,10 +55,11 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 			Kind:           scTypes + "sc-mode-event-kind",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			Mode:           mode,
-			FlashActive:    v.InConflictFlash,
+			Mode:           proto.String(mode),
+			FlashActive:    proto.Bool(v.InConflictFlash),
 		}
 
 	case model.PreemptionActivated:
@@ -68,9 +70,10 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 			Kind:           scTypes + "sc-preemption-event-kind",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			SourceId:       v.Source,
+			SourceId:       optString(v.Source),
 		}
 
 	case model.PreemptionCleared:
@@ -78,7 +81,8 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 			Kind:           scTypes + "sc-preemption-event-kind",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 		}
 
@@ -86,22 +90,23 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 		dets := make([]*scv1.DetectorReportDetector, 0, len(v.Readings))
 		for _, r := range v.Readings {
 			dets = append(dets, &scv1.DetectorReportDetector{
-				DetectorId: r.Channel,
-				Volume:     r.VolumeDelta,
-				Occupancy:  occupancyPercent(r.OccupancyTenths),
+				DetectorId: proto.Uint32(r.Channel),
+				Volume:     proto.Uint32(r.VolumeDelta),
+				Occupancy:  proto.String(occupancyPercent(r.OccupancyTenths)),
 			})
 		}
 		msg = &scv1.DetectorReport{
 			Kind:           scTypes + "sc-detector-event-kind",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			IntervalStart:  timestamppb.New(v.IntervalStart.UTC()),
 			// The domain carries true elapsed time; the wire constrains the
 			// interval to whole seconds. Round ONCE, here at the edge, rather
 			// than pre-breaking the domain to match the wire.
-			IntervalDurationS: wholeSeconds(v.IntervalDuration),
+			IntervalDurationS: proto.Uint32(wholeSeconds(v.IntervalDuration)),
 			Detector:          dets,
 		}
 	default:

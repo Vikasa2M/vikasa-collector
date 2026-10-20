@@ -181,10 +181,14 @@ their relative arrival: devices poll on independent, jittered timers.
 
 Catalog payloads carry `sequence`, a **per-device** counter that starts at
 1 and **resets when the collector restarts** (`nextSequence` in
-`internal/wire/openits/emitter.go`). It is not a global log position, and a
-gap in it is not proof of loss: an event dropped after encoding still
-consumed a number. Use it to order within one device's events, not to
-detect loss.
+`internal/wire/openits/emitter.go`), and `sequence-epoch`, which names the
+stream the counter belongs to. The collector uses its boot id (the same
+`boot_id` as `/status` and the heartbeat), so every restart is a new epoch:
+treat a new epoch as a new stream, not as loss. Within one epoch `sequence`
+is not a global log position, and a gap in it is not proof of loss: an
+event dropped after encoding still consumed a number. Use it to order within
+one device's events, not to detect loss. Neither leaf feeds `ce-id`, so a
+restart never changes an event's id.
 
 ## Provenance: who observed this
 

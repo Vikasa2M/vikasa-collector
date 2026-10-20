@@ -18,21 +18,22 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			Kind:           perceptionTypes + "pcp-zone-incident-detected",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			IncidentId:     v.IncidentID,
-			ZoneId:         v.ZoneID,
-			Type:           incidentTypeIdentity(v.Type),
+			IncidentId:     proto.String(v.IncidentID),
+			ZoneId:         proto.String(v.ZoneID),
+			Type:           optString(incidentTypeIdentity(v.Type)),
 			Severity:       incidentSeverityFor(v.Severity),
-			ObjectClass:    objectClassIdentity(v.ObjectClass),
-			Confidence:     uint32(v.ConfidencePercent),
-			TrackId:        v.TrackID,
-			TrackEpoch:     v.TrackEpoch,
+			ObjectClass:    proto.String(objectClassIdentity(v.ObjectClass)),
+			Confidence:     proto.Uint32(uint32(v.ConfidencePercent)),
+			TrackId:        proto.Uint32(v.TrackID),
+			TrackEpoch:     proto.Uint32(v.TrackEpoch),
 		}
 		// Zero is meaningful here — a stopped-vehicle incident IS zero km/h —
 		// so an unreported speed stays absent rather than rendering as stopped.
 		if v.SpeedReported {
-			d.SpeedKmh = hundredths(v.SpeedHundredthsKPH)
+			d.SpeedKmh = proto.String(hundredths(v.SpeedHundredthsKPH))
 		}
 		msg = d
 
@@ -41,15 +42,16 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			Kind:           perceptionTypes + "pcp-zone-incident-updated",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			IncidentId:     v.IncidentID,
-			ZoneId:         v.ZoneID,
+			IncidentId:     proto.String(v.IncidentID),
+			ZoneId:         proto.String(v.ZoneID),
 			Severity:       incidentSeverityFor(v.Severity),
-			Confidence:     uint32(v.ConfidencePercent),
+			Confidence:     proto.Uint32(uint32(v.ConfidencePercent)),
 		}
 		if v.SpeedReported {
-			u.SpeedKmh = hundredths(v.SpeedHundredthsKPH)
+			u.SpeedKmh = proto.String(hundredths(v.SpeedHundredthsKPH))
 		}
 		msg = u
 
@@ -58,10 +60,11 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			Kind:           perceptionTypes + "pcp-zone-incident-cleared",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			IncidentId:     v.IncidentID,
-			ZoneId:         v.ZoneID,
+			IncidentId:     proto.String(v.IncidentID),
+			ZoneId:         proto.String(v.ZoneID),
 		}
 
 	case model.ZoneIntervalReport:
@@ -70,7 +73,7 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			counts := make([]*pcpv1.ClassCount, 0, len(z.ClassCounts))
 			for _, cc := range z.ClassCounts {
 				counts = append(counts, &pcpv1.ClassCount{
-					Class: objectClassIdentity(cc.Class), Count: cc.Count,
+					Class: proto.String(objectClassIdentity(cc.Class)), Count: proto.Uint32(cc.Count),
 				})
 			}
 			// ObservedCount and OccupancyPercent are deliberately absent:
@@ -79,14 +82,14 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			// also emits. The values are not dropped, they are published
 			// under the ce-type that now defines them.
 			zone := &pcpv1.ZoneIntervalReportZone{
-				ZoneId:            z.ZoneID,
-				CrossedVolume:     z.CrossedVolume,
+				ZoneId:            proto.String(z.ZoneID),
+				CrossedVolume:     proto.Uint32(z.CrossedVolume),
 				ClassCount:        counts,
 				IntervalStart:     timestamppb.New(v.IntervalStart.UTC()),
-				IntervalDurationS: wholeSeconds(v.IntervalDuration),
+				IntervalDurationS: proto.Uint32(wholeSeconds(v.IntervalDuration)),
 			}
 			if z.SpeedReported {
-				zone.AverageSpeedKmh = hundredths(z.SpeedAvgHundredthsKPH)
+				zone.AverageSpeedKmh = proto.String(hundredths(z.SpeedAvgHundredthsKPH))
 			}
 			zones = append(zones, zone)
 		}
@@ -94,7 +97,8 @@ func (e *emitter) encodePerception(ev model.Event) (proto.Message, bool) {
 			Kind:           perceptionTypes + "pcp-zone-interval-report",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			Zone:           zones,
 		}

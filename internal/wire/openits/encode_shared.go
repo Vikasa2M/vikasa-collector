@@ -27,7 +27,8 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Kind:           kind,
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 		}
 
@@ -44,11 +45,12 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Kind:           kind,
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			FaultId:        v.FaultID,
 			Severity:       severityFor(v.Severity),
-			Description:    v.Description,
+			Description:    optString(v.Description),
 		}
 
 	case model.FaultCleared:
@@ -65,7 +67,8 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Kind:           kind,
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 			FaultId:        v.FaultID,
 		}

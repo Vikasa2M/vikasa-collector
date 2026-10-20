@@ -35,7 +35,7 @@ blocking collection upstream.
 
 `internal/wire/openits` is the only catalog emitter, and its name carries no
 version. Exactly one openits-models version is compiled in at a time. The
-pin in `go.mod` names a release tag (v0.5.0 today), never a `replace`
+pin in `go.mod` names a release tag (v0.7.0 today), never a `replace`
 directive ([ADR 0018](../adr/0018-tagged-model-pins.md)), and every
 deployment runs one catalog version
 ([ADR 0005](../adr/0005-one-catalog-version-per-instance.md)), selected by

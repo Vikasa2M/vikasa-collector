@@ -26,11 +26,17 @@ const contentType = "application/protobuf"
 const ModelVersion = "openits/v1"
 
 // New returns the openits-models emitter. collectorID identifies this
-// collector as the OBSERVER of events it synthesizes from polling.
-func New(collectorID string) wire.Emitter { return &emitter{collectorID: collectorID} }
+// collector as the OBSERVER of events it synthesizes from polling. epoch is
+// the sequence-epoch every event carries: it names this process's sequence
+// stream, so it must change whenever the counters below restart — the
+// collector passes its boot id.
+func New(collectorID, epoch string) wire.Emitter {
+	return &emitter{collectorID: collectorID, epoch: epoch}
+}
 
 type emitter struct {
 	collectorID string
+	epoch       string
 
 	// seq holds the mandatory per-source-device event counter. It lives here
 	// rather than in the runner because `sequence` is an event-header leaf —
@@ -51,11 +57,11 @@ type emitter struct {
 // "producer never set sequence". Starting at 1 keeps every emitted sequence
 // present on the wire.
 //
-// The counter is in-memory, so it restarts at 1 when the collector does. That
-// is permitted — upstream says sequence MAY reset on restart and that a
-// DECREASE signals a restart rather than a gap — and it is why sequence must
-// not participate in the ce-id digest: a restart would otherwise change the id
-// of an event whose content never changed.
+// The counter is in-memory, so it restarts at 1 when the collector does. Each
+// restart is a new sequence-epoch (the boot id), which is how a consumer tells
+// a restart from loss. That is also why sequence and epoch must not
+// participate in the ce-id digest: a restart would otherwise change the id of
+// an event whose content never changed.
 func (e *emitter) nextSequence(deviceID string) uint64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -206,6 +212,17 @@ func wholeSeconds(d time.Duration) uint32 {
 	return uint32((d + 500*time.Millisecond) / time.Second)
 }
 
+// optString is presence for an optional text or identity leaf: empty means
+// the domain has nothing to report, so the leaf is absent rather than an
+// empty string (openits-models v0.6.0 gave every optional scalar explicit
+// presence, so absent and zero are different claims on the wire).
+func optString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // severityFor maps the domain severity to the wire enum. Written as an
 // explicit switch, not a numeric cast: the values happen to line up 1:1 today
 // (commonv1 has no UNSPECIFIED, so INFO=0..CRITICAL=4 matches the domain), but
@@ -234,16 +251,17 @@ func (e *emitter) modeChanged(b model.Base, kind, prior, current string) *common
 		Kind:           kind,
 		SourceDeviceId: b.DeviceID,
 		OccurredAt:     timestamppb.New(b.OccurredAt.UTC()),
-		ObservedBy:     e.collectorID,
+		ObservedBy:     proto.String(e.collectorID),
+		SequenceEpoch:  e.epoch,
 		Sequence:       e.nextSequence(b.DeviceID),
-		Prior:          prior,
-		Current:        current,
+		PreviousMode:   optString(prior),
+		Mode:           current,
 	}
 }
 
 // producerAssigned names the event-header leaves that describe the OBSERVATION
 // rather than the occurrence, and so must not feed the deterministic ce-id.
-var producerAssigned = []string{"sequence", "observed_by"}
+var producerAssigned = []string{"sequence", "sequence_epoch", "observed_by"}
 
 // identityBytes marshals msg with the producer-assigned leaves cleared.
 //

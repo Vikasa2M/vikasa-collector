@@ -114,7 +114,7 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// with no upstream identity, a shared event on an unserved device kind),
 	// so the drop is the visible outcome of a mapping gap rather than evidence
 	// the chain is unwired.
-	catalog, err := catalogEmitter(cfg.ModelVersion, cfg.CollectorID)
+	catalog, err := catalogEmitter(cfg.ModelVersion, cfg.CollectorID, bootID)
 	if err != nil {
 		return err
 	}
@@ -267,10 +267,10 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 // config has already rejected anything outside wire.SupportedModelVersions;
 // the error path is for a version listed there with no case here, which
 // TestEverySupportedModelVersionSelectsAnEmitter catches first.
-func catalogEmitter(modelVersion, collectorID string) (wire.Emitter, error) {
+func catalogEmitter(modelVersion, collectorID, epoch string) (wire.Emitter, error) {
 	switch modelVersion {
 	case openits.ModelVersion:
-		return openits.New(collectorID), nil
+		return openits.New(collectorID, epoch), nil
 	default:
 		return nil, fmt.Errorf("model_version %q has no catalog emitter in this build", modelVersion)
 	}

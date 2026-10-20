@@ -76,7 +76,7 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 ### The code does not meet a bar the docs correctly state
 
 **48 catalog ce-types are declared upstream and unmapped; 3 of them are owed
-in services the collector already serves.** Against the v0.5.0 pin the
+in services the collector already serves.** Against the v0.7.0 pin the
 emitter maps 29 of the catalog's 77 ce-types. Under
 [ADR 0016](adr/0016-collector-as-transitional-shim.md) the collector adapts
 to the catalog, so an unmapped ce-type is work owed here, not a catalog

@@ -34,12 +34,13 @@ func (e *emitter) encodeDMS(ev model.Event) (proto.Message, bool) {
 			Kind:                dmsTypes + "dms-message-activation-failed",
 			SourceDeviceId:      v.DeviceID,
 			OccurredAt:          timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:          e.collectorID,
+			ObservedBy:          proto.String(e.collectorID),
+			SequenceEpoch:       e.epoch,
 			Sequence:            e.nextSequence(v.DeviceID),
-			AttemptedMemoryType: memoryTypeFor(v.MemoryType),
-			AttemptedSlotNumber: v.Slot,
-			ErrorType:           errorTypeFor(v.Error),
-			ErrorPosition:       v.ErrorPosition,
+			AttemptedMemoryType: optMemoryType(v.MemoryType),
+			AttemptedSlotNumber: proto.Uint32(v.Slot),
+			ErrorType:           proto.String(errorTypeFor(v.Error)),
+			ErrorPosition:       proto.Uint32(v.ErrorPosition),
 		}
 
 	case model.DMSMessageChanged:
@@ -47,24 +48,25 @@ func (e *emitter) encodeDMS(ev model.Event) (proto.Message, bool) {
 			Kind:           dmsTypes + "dms-message-changed",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
-			MemoryType:     memoryTypeFor(v.ToMemoryType),
-			SlotNumber:     v.ToSlot,
-			MultiString:    v.ToText,
-			Crc:            v.ToCRC,
+			MemoryType:     optMemoryType(v.ToMemoryType),
+			SlotNumber:     proto.Uint32(v.ToSlot),
+			MultiString:    optString(v.ToText),
+			Crc:            proto.Uint32(v.ToCRC),
 			// FromCRC is DROPPED: the wire carries no prior-crc leaf. The
 			// prior message is identified to consumers by (bank, slot, text);
 			// an in-place rewrite still reports because the CURRENT crc moved.
-			PriorMemoryType:  memoryTypeFor(v.FromMemoryType),
-			PriorSlotNumber:  v.FromSlot,
-			PriorMultiString: v.FromText,
+			PriorMemoryType:  optMemoryType(v.FromMemoryType),
+			PriorSlotNumber:  proto.Uint32(v.FromSlot),
+			PriorMultiString: optString(v.FromText),
 		}
 		// activation-trigger is optional: a trigger with no upstream identity
 		// (unknown, reset, vendor-specific) leaves the leaf unset rather than
 		// declining the event or asserting a near-neighbour cause.
 		if trig, ok := activationTriggerIdentity(v.Trigger); ok {
-			mc.ActivationTrigger = trig
+			mc.ActivationTrigger = proto.String(trig)
 		}
 		msg = mc
 
@@ -83,35 +85,36 @@ func (e *emitter) encodeDMS(ev model.Event) (proto.Message, bool) {
 			Kind:           dmsTypes + "dms-sign-status-report",
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
-			ObservedBy:     e.collectorID,
+			ObservedBy:     proto.String(e.collectorID),
+			SequenceEpoch:  e.epoch,
 			Sequence:       e.nextSequence(v.DeviceID),
 		}
 		if v.BrightnessReported {
-			r.BrightnessCurrent = uint32(v.BrightnessPercent)
+			r.BrightnessCurrent = proto.Uint32(uint32(v.BrightnessPercent))
 		}
 		if v.AmbientLightReported {
-			r.AmbientLightLevel = uint32(v.AmbientLightPercent)
+			r.AmbientLightLevel = proto.Uint32(uint32(v.AmbientLightPercent))
 		}
 		if v.IlluminanceReported {
-			r.AmbientIlluminanceLux = v.IlluminanceLux
+			r.AmbientIlluminanceLux = proto.Uint32(v.IlluminanceLux)
 		}
 		if v.CabinetTempReported {
-			r.CabinetTemperatureC = deciCelsius(v.CabinetTempDeciC)
+			r.CabinetTemperatureC = proto.String(deciCelsius(v.CabinetTempDeciC))
 		}
 		if v.FaceTempReported {
-			r.SignFaceTemperatureC = deciCelsius(v.FaceTempDeciC)
+			r.SignFaceTemperatureC = proto.String(deciCelsius(v.FaceTempDeciC))
 		}
 		if v.HumidityReported {
-			r.HumidityPercent = uint32(v.HumidityPercent)
+			r.HumidityPercent = proto.Uint32(uint32(v.HumidityPercent))
 		}
 		if v.DoorReported {
-			r.DoorOpen = v.DoorOpen
+			r.DoorOpen = proto.Bool(v.DoorOpen)
 		}
 		if v.FanReported {
-			r.FanActive = v.FanActive
+			r.FanActive = proto.Bool(v.FanActive)
 		}
 		if v.HeaterReported {
-			r.HeaterActive = v.HeaterActive
+			r.HeaterActive = proto.Bool(v.HeaterActive)
 		}
 		msg = r
 	default:
