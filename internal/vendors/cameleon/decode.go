@@ -108,14 +108,14 @@ func cabinetFaults(lf, sp, door, estop uint16) []model.Fault {
 	var out []model.Fault
 	if lf&1 != 0 {
 		out = append(out, model.Fault{
-			ID: "cabinet/lf-fault", Severity: model.SeverityMajor,
-			Category: model.CategoryCabinet, Description: "ACS LF fault active",
+			ID: "cabinet/lf-fault", Severity: model.SeverityMinor,
+			Category: model.CategoryCabinet, Description: "ACS line filter fault active",
 		})
 	}
 	if sp&1 != 0 {
 		out = append(out, model.Fault{
-			ID: "cabinet/sp-fault", Severity: model.SeverityMajor,
-			Category: model.CategoryCabinet, Description: "ACS SP fault active",
+			ID: "cabinet/sp-fault", Severity: model.SeverityMinor,
+			Category: model.CategoryCabinet, Description: "ACS surge protector fault active",
 		})
 	}
 	if door&1 != 0 {
