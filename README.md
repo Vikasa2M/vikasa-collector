@@ -36,7 +36,7 @@ the pipeline end to end. The decisions behind it are in
 
 ## Status
 
-Pre-1.0. The core is complete: nine facet kinds (typed slices of device
+Pre-1.0. The core is complete: ten facet kinds (typed slices of device
 state) with a differ each, and 29 catalog event types plus five
 collector-owned ones, each pinned by a byte-exact golden test. Events are
 published in the NATS reference profile's Tier 2 shape (binary-mode
@@ -57,10 +57,12 @@ systemd unit. No release has been published yet; until one is, build the
 same archives with `make release-snapshot`. See [deploying a
 collector](docs/how-to/deploy-a-collector.md).
 
-What is missing is **adapters**. Two exist, `ntcip-asc` (signal controller)
-and `ntcip-dms` (message sign). Camera, traffic-sensor and perception
-devices are modeled, diffed and wired, but nothing reads them yet — see
-[starter tasks](docs/reference/starter-tasks.md).
+What is missing is **adapters**. Three exist — `ntcip-asc` (signal
+controller), `ntcip-dms` (message sign), and `cameleon-acs` (reversible-lane
+gates over GE SRTP). Camera, traffic-sensor and perception devices are
+modeled, diffed and wired, but nothing reads them yet — see
+[starter tasks](docs/reference/starter-tasks.md). The shipped
+`collector.yaml` includes an ACS device next to the signal controller.
 
 Some events are dropped with a warning by design. The emitter declines an
 event it cannot encode faithfully (for example, a controller mode the

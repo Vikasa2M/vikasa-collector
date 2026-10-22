@@ -6,8 +6,10 @@ import (
 	cctvv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/cctv/v1"
 	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
 	pcpv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/perception/v1"
+	rlv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/reversible_lane/v1"
 	scv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/signal_control/v1"
 	tsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/traffic_sensor/v1"
+	typesv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/types/v1"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -21,6 +23,7 @@ const (
 	cctvTypes       = "openits-cctv-types:"
 	trafficSenTypes = "openits-traffic-sensor-types:"
 	perceptionTypes = "openits-perception-types:"
+	rlTypes         = "openits-reversible-lane-types:"
 
 	// openits-types is the foundation layer. object-class and its object-*
 	// leaves lived in openits-perception-types until the v0.3.0 hoist
@@ -111,7 +114,7 @@ func flashCauseIdentity(c model.FlashCause) (string, bool) {
 //
 // CategoryUnknown is the zero value, so it is the common case for any adapter
 // that has not classified its faults yet; it must not silently suppress them.
-func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) {
+func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultType) (string, bool) {
 	switch deviceKind {
 	case "asc":
 		switch c {
@@ -190,10 +193,109 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) 
 		default:
 			return dmsTypes + "dms-fault-event-kind", true
 		}
+	case "acs":
+		// ACS faults map only onto declared reversible-lane leaf identities.
+		// The v0.8.0 conformance rule rejects the service base kind
+		// (reversible-lane-fault-event-kind), so unmapped types decline rather
+		// than fall back. Requires an openits-models release containing the
+		// plc-fault, plc-configuration, cabinet-door-open, and gate-invalid-inputs
+		// leaves (CI cannot pass until the pin is bumped). Cabinet gate-estop
+		// stays declined deliberately: each gate's own emergency-stop leaf
+		// already covers per-gate e-stop. Clears carry Category and Type
+		// (ADR 0024).
+		if c == model.CategoryUnknown {
+			return "", false
+		}
+		switch ft {
+		case model.FaultTypeGateFailedToClose:
+			return rlTypes + "reversible-lane-fault-gate-failed-to-close", true
+		case model.FaultTypeGateFailedToOpen:
+			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
+		case model.FaultTypeGateEmergencyStop:
+			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
+		case model.FaultTypeGateInvalidInputs:
+			return rlTypes + "reversible-lane-fault-gate-invalid-inputs", true
+		case model.FaultTypeGateCommandRefused:
+			return rlTypes + "reversible-lane-fault-interlock", true
+		case model.FaultTypePLCNotScanning:
+			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypePLCFault:
+			return rlTypes + "reversible-lane-fault-plc-fault", true
+		case model.FaultTypePLCCabinetIDChanged, model.FaultTypePLCCabinetIDMismatch,
+			model.FaultTypePLCProgramCRCMismatch, model.FaultTypePLCConfigCRCMismatch:
+			return rlTypes + "reversible-lane-fault-plc-configuration", true
+		case model.FaultTypeCabinetLineFilter, model.FaultTypeCabinetSurgeProtector:
+			return rlTypes + "reversible-lane-fault-power", true
+		case model.FaultTypeCabinetDoor:
+			return rlTypes + "reversible-lane-fault-cabinet-door-open", true
+		default:
+			// FaultTypeCabinetGateEstop and any future unclassified type.
+			return "", false
+		}
 	default:
 		return "", false
 	}
 }
+
+// gateComponent names the gate a gate-scoped fault concerns. Empty GateID
+// (cabinet and PLC faults) returns nil.
+func gateComponent(gateID string) *typesv1.ComponentRef {
+	if gateID == "" {
+		return nil
+	}
+	return &typesv1.ComponentRef{
+		ComponentClass: rlTypes + "rl-component-gate",
+		ComponentId:    gateID,
+	}
+}
+
+// gatePositionFor maps domain gate motion/rest state onto the wire enum.
+func gatePositionFor(p model.GatePosition) rlv1.GatePosition {
+	switch p {
+	case model.GatePositionClosing:
+		return rlv1.GatePosition_GATE_POSITION_CLOSING
+	case model.GatePositionClosed:
+		return rlv1.GatePosition_GATE_POSITION_CLOSED
+	case model.GatePositionOpening:
+		return rlv1.GatePosition_GATE_POSITION_OPENING
+	case model.GatePositionOpened:
+		return rlv1.GatePosition_GATE_POSITION_OPEN
+	default:
+		return rlv1.GatePosition_GATE_POSITION_UNKNOWN
+	}
+}
+
+// gateOperatingModeFor maps domain gate mode onto the identityref string.
+func gateOperatingModeFor(m model.GateMode) string {
+	switch m {
+	case model.GateModeAuto:
+		return rlTypes + "reversible-lane-gate-mode-automatic"
+	case model.GateModeManual, model.GateModeManualNonInterlocked:
+		return rlTypes + "reversible-lane-gate-mode-manual"
+	case model.GateModeOffline:
+		return rlTypes + "reversible-lane-gate-mode-offline"
+	default:
+		return ""
+	}
+}
+
+// interlockBypassedFor maps Cameleon mode onto the optional wire leaf.
+// Automatic and Manual assert false; Manual Non-Interlocked asserts true;
+// Offline and Unknown leave the leaf unset (open question for the maintainer:
+// Offline could honestly claim false, but the mode already says the gate is
+// not under interlock control).
+func interlockBypassedFor(m model.GateMode) *bool {
+	switch m {
+	case model.GateModeAuto, model.GateModeManual:
+		return protoBool(false)
+	case model.GateModeManualNonInterlocked:
+		return protoBool(true)
+	default:
+		return nil
+	}
+}
+
+func protoBool(v bool) *bool { return &v }
 
 // dmsControlModeIdentity maps who is driving the sign. There is no "unknown"
 // member upstream (local/external/central/central-override/simulation/other),
@@ -557,4 +659,8 @@ var dataSchemaFor = map[string]string{
 
 	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-10-17/",
 	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-10-13/",
+
+	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-10-15/",
 }
