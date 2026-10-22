@@ -229,7 +229,6 @@ in `/status`.
 - **Expected-version drift reporting** — `/status` and the heartbeat report
   the running version and `config_revision`, but nothing yet compares them
   with what a cabinet *should* be running.
-- **`sd_notify`** — the unit is `Type=simple`; readiness is `/readyz`.
 - **Packages and a container image** — not project deliverables
   ([ADR 0023](../adr/0023-ship-a-binary-and-a-runtime-contract.md)). Build
   one from the release binary against the
