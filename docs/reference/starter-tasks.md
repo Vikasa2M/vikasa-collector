@@ -82,21 +82,14 @@ walks a throwaway adapter end to end first.
 
 `make check` is the whole feedback loop for each of these.
 
-- **Map one of the three owed ce-types.** The `unmapped` allowlist in
-  `internal/wire/openits/catalog_test.go` marks three catalog ce-types
-  `owedServiceAlreadyWired`: `traffic-sensor-status-report`,
-  `queue-state-changed` and `zone-occupancy-changed`, in services the
-  collector already serves end to end. Each needs a domain event, a
-  `ceTypeFor` entry, an encoder case and a golden, and its `unmapped` line
-  deleted — follow
-  [`map-an-event-to-the-wire.md`](../how-to/map-an-event-to-the-wire.md).
-  Start with `traffic-sensor-status-report`.
 - **Assess one signal-control ce-type.** Eleven signal-control ce-types in
-  the same allowlist are marked `signalControlNotAssessed`. Most are
+  the `unmapped` allowlist in `internal/wire/openits/catalog_test.go` are
+  marked `signalControlNotAssessed`. Most are
   per-cycle events (phase, overlap, pedestrian, detector transitions) that
   an SNMP poller cannot observe, but each needs its own verdict: either it
-  can be derived from what `ntcip-asc` already polls, and moves to
-  `owedServiceAlreadyWired`, or the allowlist records why polling cannot
+  can be derived from what `ntcip-asc` already polls, and is mapped; or
+  one more NTCIP object would serve, and it moves to
+  `owedNeedsADeviceFact`; or the allowlist records why polling cannot
   see it. This is reading NTCIP 1202 and the catalog, not writing much
   code.
 
