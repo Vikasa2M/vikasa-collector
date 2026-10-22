@@ -213,6 +213,39 @@ invisible. A clean run is real evidence, not proof, which is why
 concurrency-sensitive code still deserves reasoning about its
 synchronisation.
 
+## Fuzzing: what a device can send
+
+A device's response is untrusted input, and
+[`SECURITY.md`](../../SECURITY.md) puts "a malformed or malicious device
+response that crashes the collector" in scope. Fixtures show a device's
+honest answers; native Go fuzz targets show what happens with any answer:
+
+- `FuzzResponseDecode` (`sdk/transport/snmp`) feeds arbitrary bytes through
+  gosnmp's packet decode and this package's conversion of each varbind;
+- `FuzzASCRead` and `FuzzDMSRead` (`internal/vendors/ntcip`) give each
+  adapter any value, or no answer, for every OID its `Read` asks for, and
+  check the snapshot is coherent: no facet both present and failed, and
+  percentages and occupancy in range;
+- `FuzzPollSurvivesAnyAdapter` (`internal/runner`) has an adapter panic,
+  return nil, or hand back nil, wrong-typed or failed-and-present facets,
+  through a runner with every differ registered.
+
+Each target's seed corpus, drawn from the existing fixtures plus every input
+that has ever failed it (under `testdata/fuzz/`), runs as an ordinary test in
+`make check`. `make fuzz` adds coverage-guided mutation. CI runs it for 15
+seconds per target on every change; run it longer locally
+(`make fuzz FUZZTIME=10m`) after touching a decode path.
+
+**What fuzzing proves:** the inputs it tried did not crash, hang or break
+the stated checks. It has already paid for itself twice. A nil facet from
+an adapter panicked in the engine, outside the runner's recovery, which would
+have taken down every device. And a large photocell reading overflowed
+`percentOf` into a published 255% ambient light.
+
+**What it does not prove:** that no such input exists. Coverage guidance
+finds a lot quickly, but the search is still a sample, and the checks only
+catch what they state. A value decoded wrongly but in range passes.
+
 ## Doc guards: structural, not semantic
 
 `internal/docs` is a package of tests, not production code, that keeps
@@ -264,6 +297,7 @@ is a review problem, on purpose.
 | Differ tests | State transitions are correct, including the absence rule, for every registered differ | Facet kinds that do not exist yet |
 | Conformance tests | Published shape matches an external contract | Anything the loaded contract does not state; the catalog check reads the pinned `asyncapi.yaml`, not openits-models' prose or JSON Schemas |
 | `-race` | No race on the interleavings this run exercised | Paths not run, and interleavings that did not occur |
+| Fuzzing | Device-facing decode and the poll path survive the inputs tried | Inputs not tried; values decoded wrongly but in range |
 | Doc guards | A specific structural claim still matches the code | Whether the claim is relevant, or the prose around it accurate |
 
 No layer substitutes for another. A golden cannot catch a wrong mapping, a

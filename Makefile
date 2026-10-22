@@ -1,4 +1,4 @@
-.PHONY: build cross release-snapshot test vet lint vuln tidy-check dev lint-boundary lint-boundary-selftest lint-boundary-replace-selftest lint-boundary-tag-selftest lint-boundary-independent-selftest lint-docs check
+.PHONY: build cross release-snapshot test vet lint vuln fuzz tidy-check dev lint-boundary lint-boundary-selftest lint-boundary-replace-selftest lint-boundary-tag-selftest lint-boundary-independent-selftest lint-docs check
 
 # Developer tools live in their own module (tools/go.mod) so their dependency
 # graphs never touch the collector's. Versions are pinned there, not here.
@@ -45,6 +45,11 @@ tidy-check:
 	go mod tidy -diff
 	go mod verify
 	cd tools && go mod tidy -diff
+
+# Coverage-guided fuzzing of every Fuzz target, FUZZTIME each (default 10s).
+# Their seed corpora already run as tests in `make check`.
+fuzz:
+	FUZZTIME=$(FUZZTIME) ./scripts/fuzz.sh
 
 lint-boundary:
 	./scripts/lint-boundary.sh
