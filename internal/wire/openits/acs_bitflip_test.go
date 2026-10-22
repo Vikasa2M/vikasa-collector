@@ -25,8 +25,10 @@ import (
 )
 
 // TestACSRecordedPollDeclinesUnmappedFaults boots the recorded ACS1 %R image
-// through synth + the openits emitter. The fixture raises plc/fault; until
-// the pending models PR lands that leaf, Encode declines it (loud-drop).
+// through synth + the openits emitter. After the new reversible-lane leaves,
+// the fixture's plc/fault encodes; only a deliberately declined type (cabinet
+// gate-estop) would still drop. The recorded poll has no gate-estop, so the
+// declined count is 0.
 func TestACSRecordedPollDeclinesUnmappedFaults(t *testing.T) {
 	words := make([]uint16, 110)
 	words[0] = 0x2E02 // fixture %R90: PLC fault bit
@@ -42,9 +44,10 @@ func TestACSRecordedPollDeclinesUnmappedFaults(t *testing.T) {
 	snap.DeviceKind = "acs"
 	evs := synth.NewEngine(synth.NewFaultDiffer()).Apply(snap)
 	em := New("collector", testEpoch)
-	declined := 0
+	declined, encoded := 0, 0
 	for _, ev := range evs {
-		if _, ok := ev.(model.FaultRaised); !ok {
+		fr, ok := ev.(model.FaultRaised)
+		if !ok {
 			continue
 		}
 		_, ok, err := em.Encode(ev)
@@ -53,10 +56,15 @@ func TestACSRecordedPollDeclinesUnmappedFaults(t *testing.T) {
 		}
 		if !ok {
 			declined++
+			continue
+		}
+		encoded++
+		if fr.FaultID != "plc/fault" {
+			t.Fatalf("unexpected raised fault %q", fr.FaultID)
 		}
 	}
-	if declined != 1 {
-		t.Fatalf("recorded poll declined %d fault-raised events, want 1 (plc/fault)", declined)
+	if encoded != 1 || declined != 0 {
+		t.Fatalf("recorded poll encoded=%d declined=%d; want encoded=1 (plc/fault) declined=0", encoded, declined)
 	}
 }
 

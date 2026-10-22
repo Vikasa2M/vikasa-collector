@@ -197,9 +197,12 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 		// ACS faults map only onto declared reversible-lane leaf identities.
 		// The v0.8.0 conformance rule rejects the service base kind
 		// (reversible-lane-fault-event-kind), so unmapped types decline rather
-		// than fall back. Pending models PR adds plc-fault, plc-configuration,
-		// cabinet-door, and gate-invalid-inputs leaves; until then those types
-		// take the loud-drop path. Clears carry Category and Type (ADR 0024).
+		// than fall back. Requires an openits-models release containing the
+		// plc-fault, plc-configuration, cabinet-door-open, and gate-invalid-inputs
+		// leaves (CI cannot pass until the pin is bumped). Cabinet gate-estop
+		// stays declined deliberately: each gate's own emergency-stop leaf
+		// already covers per-gate e-stop. Clears carry Category and Type
+		// (ADR 0024).
 		if c == model.CategoryUnknown {
 			return "", false
 		}
@@ -210,13 +213,23 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
 		case model.FaultTypeGateEmergencyStop:
 			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
-		case model.FaultTypePLCNotScanning:
-			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypeGateInvalidInputs:
+			return rlTypes + "reversible-lane-fault-gate-invalid-inputs", true
 		case model.FaultTypeGateCommandRefused:
 			return rlTypes + "reversible-lane-fault-interlock", true
+		case model.FaultTypePLCNotScanning:
+			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypePLCFault:
+			return rlTypes + "reversible-lane-fault-plc-fault", true
+		case model.FaultTypePLCCabinetIDChanged, model.FaultTypePLCCabinetIDMismatch,
+			model.FaultTypePLCProgramCRCMismatch, model.FaultTypePLCConfigCRCMismatch:
+			return rlTypes + "reversible-lane-fault-plc-configuration", true
 		case model.FaultTypeCabinetLineFilter, model.FaultTypeCabinetSurgeProtector:
 			return rlTypes + "reversible-lane-fault-power", true
+		case model.FaultTypeCabinetDoor:
+			return rlTypes + "reversible-lane-fault-cabinet-door-open", true
 		default:
+			// FaultTypeCabinetGateEstop and any future unclassified type.
 			return "", false
 		}
 	default:
