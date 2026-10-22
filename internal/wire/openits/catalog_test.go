@@ -104,17 +104,19 @@ const (
 	// no command path in the SDK, ADR 0021), so it never observes one.
 	describesACommand unmappedReason = "describes a command; the collector issues none"
 
-	// The service is already wired end to end (facet, differ, adapter path,
-	// publish), so this is a collector gap owed here (ADR 0016), not a
-	// modelling question. These are the next mappings to write.
-	owedServiceAlreadyWired unmappedReason = "owed: service already wired end to end"
+	// The service is wired, but the event reports a fact no facet holds and
+	// no adapter reads: a sensor's operational status, its queue state, a
+	// zone's live occupancy. Owed here (ADR 0016), but with the first adapter
+	// that can read the fact, not modelled ahead of a device (2026-10-22).
+	owedNeedsADeviceFact unmappedReason = "owed: needs a fact no adapter reads yet"
 
 	// Signal control is wired, but these have not been assessed one by one.
 	// Most are per-cycle events an SNMP poller structurally cannot observe
 	// (phase, overlap, pedestrian, detector transitions) and belong to a
 	// controller that emits natively (ADR 0016); some may be pollable.
-	// Assessing one means moving it to owedServiceAlreadyWired or recording
-	// why polling cannot see it.
+	// Assessing one means mapping it (if what it needs is already polled),
+	// moving it to owedNeedsADeviceFact (if one more device object would
+	// serve), or recording why polling cannot see it.
 	signalControlNotAssessed unmappedReason = "signal control: not yet assessed per event"
 )
 
@@ -163,10 +165,10 @@ var unmapped = map[string]unmappedReason{
 	"openits.cctv.ptz-move-commanded.v1":  describesACommand,
 	"openits.cctv.ptz-preset-recalled.v1": describesACommand,
 	// traffic-sensor
-	"openits.traffic-sensor.queue-state-changed.v1":          owedServiceAlreadyWired,
-	"openits.traffic-sensor.traffic-sensor-status-report.v1": owedServiceAlreadyWired,
+	"openits.traffic-sensor.queue-state-changed.v1":          owedNeedsADeviceFact,
+	"openits.traffic-sensor.traffic-sensor-status-report.v1": owedNeedsADeviceFact,
 	// zone-occupancy
-	"openits.zone-occupancy.zone-occupancy-changed.v1": owedServiceAlreadyWired,
+	"openits.zone-occupancy.zone-occupancy-changed.v1": owedNeedsADeviceFact,
 	// signal-control
 	"openits.signal-control.controller-fault-event.v1":      signalControlNotAssessed,
 	"openits.signal-control.coordination-change.v1":         signalControlNotAssessed,

@@ -76,7 +76,7 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 ### The code does not meet a bar the docs correctly state
 
 **49 catalog ce-types are declared upstream and unmapped; 3 of them are owed
-in services the collector already serves.** Against the v0.8.0 pin the
+in services the collector already serves, once an adapter can read them.** Against the v0.8.0 pin the
 emitter maps 30 of the catalog's 79 ce-types. Under
 [ADR 0016](adr/0016-collector-as-transitional-shim.md) the collector adapts
 to the catalog, so an unmapped ce-type is work owed here, not a catalog
@@ -98,12 +98,17 @@ stale. Each entry carries one of four reasons:
   per-cycle events an SNMP poller cannot observe. They want a controller
   that pushes, which is the end state ADR 0016 expects to make the
   collector unnecessary. Each needs its own verdict.
-- **owed** (3) — `traffic-sensor-status-report`, `queue-state-changed`
-  and `zone-occupancy-changed`, in services already wired end to end.
+- **owed, needs a device fact** (3) — `traffic-sensor-status-report`,
+  `queue-state-changed` and `zone-occupancy-changed`. The services are
+  wired, but each event reports something no facet holds and no adapter
+  reads: a sensor's operational status, its queue state, a zone's live
+  occupancy. They are added with the first adapter that can read the fact,
+  not modelled ahead of a device.
 
-*Closing it:* one ce-type at a time. Each needs the domain event, the
+*Closing it:* one ce-type at a time. A mapping needs the domain event, the
 `ceTypeFor` entry, the encoder case, a golden, and its `unmapped` line
-deleted. Start with `traffic-sensor-status-report`, the one ADR 0016 names.
+deleted. For the three owed ones that starts with an adapter, so it needs
+the device. `traffic-sensor-status-report` is the one ADR 0016 names.
 
 **`ntcip-asc`'s fixtures are hand-written, not recordings.** ADR 0008
 requires recorded raw transport responses. `internal/vendors/ntcip/asc_test.go`'s
