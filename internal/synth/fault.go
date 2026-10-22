@@ -57,6 +57,7 @@ func (faultDiffer) Diff(prev, curr model.Facet, base model.Base) []model.Event {
 		events = append(events, model.FaultRaised{
 			Base: base, FaultID: f.ID, Severity: f.Severity,
 			Category: f.Category, Description: f.Description, FirstObserved: f.FirstObserved,
+			Type: f.Type, GateID: f.GateID,
 		})
 	}
 	for _, id := range sortedIDs(prevFaults) {
@@ -66,7 +67,10 @@ func (faultDiffer) Diff(prev, curr model.Facet, base model.Base) []model.Event {
 		// A fault restored from state written before first-seen times were
 		// kept has none; its clear then claims no start rather than a wrong one.
 		p := prevFaults[id]
-		events = append(events, model.FaultCleared{Base: base, FaultID: id, Category: p.Category, FirstObserved: p.FirstObserved})
+		events = append(events, model.FaultCleared{
+			Base: base, FaultID: id, Category: p.Category, FirstObserved: p.FirstObserved,
+			Type: p.Type, GateID: p.GateID,
+		})
 	}
 	return events
 }

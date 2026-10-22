@@ -253,37 +253,40 @@ func (a *acs) plcFaults(words []uint16, now time.Time) ([]model.Fault, error) {
 		return nil, err
 	}
 	var out []model.Fault
-	add := func(id, desc string, sev model.FaultSeverity) {
+	add := func(id string, ft model.FaultType, desc string, sev model.FaultSeverity) {
 		out = append(out, model.Fault{
-			ID: id, Severity: sev, Category: model.CategoryCabinet, Description: desc,
+			ID: id, Severity: sev, Category: model.CategoryCabinet, Description: desc, Type: ft,
 		})
 	}
 	if dsw0&(1<<10) != 0 {
-		add("plc/fault", "PLC fault bit active", model.SeverityMajor)
+		add("plc/fault", model.FaultTypePLCFault, "PLC fault bit active", model.SeverityMajor)
 	}
 	if dsw0&(1<<7) != 0 {
-		add("plc/cabinet-id-changed", "PLC cabinet ID changed", model.SeverityMajor)
+		add("plc/cabinet-id-changed", model.FaultTypePLCCabinetIDChanged, "PLC cabinet ID changed", model.SeverityMajor)
 	}
 	if a.plc.hasCabinetID {
 		got := int((dsw0 >> 1) & 0x3f)
 		if got != a.plc.cabinetID {
-			add("plc/cabinet-id-mismatch", "PLC cabinet ID does not match configuration", model.SeverityMajor)
+			add("plc/cabinet-id-mismatch", model.FaultTypePLCCabinetIDMismatch,
+				"PLC cabinet ID does not match configuration", model.SeverityMajor)
 		}
 	}
 	if a.plc.hasProgramCRC {
 		prog := uint32(progLo) | uint32(progHi)<<16
 		if prog != a.plc.programCRC {
-			add("plc/program-crc-mismatch", "PLC program CRC does not match configuration", model.SeverityMajor)
+			add("plc/program-crc-mismatch", model.FaultTypePLCProgramCRCMismatch,
+				"PLC program CRC does not match configuration", model.SeverityMajor)
 		}
 	}
 	if a.plc.hasConfigCRC {
 		cfg := uint32(cfgLo) | uint32(cfgHi)<<16
 		if cfg != a.plc.configCRC {
-			add("plc/config-crc-mismatch", "PLC config CRC does not match configuration", model.SeverityMajor)
+			add("plc/config-crc-mismatch", model.FaultTypePLCConfigCRCMismatch,
+				"PLC config CRC does not match configuration", model.SeverityMajor)
 		}
 	}
 	if a.stalled(dsw0>>11, now) {
-		add("plc/not-scanning", "PLC watchdog has not advanced", model.SeverityCritical)
+		add("plc/not-scanning", model.FaultTypePLCNotScanning, "PLC watchdog has not advanced", model.SeverityCritical)
 	}
 	return out, nil
 }

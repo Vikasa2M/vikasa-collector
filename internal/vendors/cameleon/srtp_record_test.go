@@ -333,12 +333,14 @@ func expectFromWords(t *testing.T, words map[int]uint16) (model.GateBank, model.
 			faults = append(faults, model.Fault{
 				ID: "plc/fault", Severity: model.SeverityMajor,
 				Category: model.CategoryCabinet, Description: "PLC fault bit active",
+				Type: model.FaultTypePLCFault,
 			})
 		}
 		if w&(1<<7) != 0 {
 			faults = append(faults, model.Fault{
 				ID: "plc/cabinet-id-changed", Severity: model.SeverityMajor,
 				Category: model.CategoryCabinet, Description: "PLC cabinet ID changed",
+				Type: model.FaultTypePLCCabinetIDChanged,
 			})
 		}
 	}

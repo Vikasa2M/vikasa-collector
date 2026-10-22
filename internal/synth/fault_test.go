@@ -211,3 +211,20 @@ func TestFaultClearCarriesTheCategoryOfItsRaise(t *testing.T) {
 		t.Fatalf("clear category = %v, want the raise's %v", cleared.Category, model.CategoryLamp)
 	}
 }
+
+func TestFaultClearCarriesTypeAndGateID(t *testing.T) {
+	t.Parallel()
+	e := NewEngine(NewFaultDiffer())
+	f := model.Fault{
+		ID: "gate/WG-1/estop", Severity: model.SeverityCritical,
+		Category: model.CategoryCabinet, Type: model.FaultTypeGateEmergencyStop, GateID: "WG-1",
+	}
+	raised := e.Apply(faultSnap(t0, f))[0].(model.FaultRaised)
+	if raised.Type != model.FaultTypeGateEmergencyStop || raised.GateID != "WG-1" {
+		t.Fatalf("raise type/gate = %v/%q", raised.Type, raised.GateID)
+	}
+	cleared := e.Apply(faultSnap(t0.Add(time.Second)))[0].(model.FaultCleared)
+	if cleared.Type != model.FaultTypeGateEmergencyStop || cleared.GateID != "WG-1" {
+		t.Fatalf("clear type/gate = %v/%q", cleared.Type, cleared.GateID)
+	}
+}

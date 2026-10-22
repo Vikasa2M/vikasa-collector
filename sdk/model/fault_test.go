@@ -50,3 +50,17 @@ func TestFaultCategoryString(t *testing.T) {
 		}
 	}
 }
+
+func TestFaultTypeString(t *testing.T) {
+	t.Parallel()
+	cases := map[FaultType]string{
+		FaultTypeUnknown: "unknown", FaultTypeGateFailedToClose: "failed-to-close",
+		FaultTypeGateEmergencyStop: "emergency-stop", FaultTypeCabinetDoor: "door",
+		FaultTypePLCNotScanning: "not-scanning", FaultType(99): "unknown",
+	}
+	for ft, want := range cases {
+		if got := ft.String(); got != want {
+			t.Errorf("%d.String() = %q, want %q", ft, got, want)
+		}
+	}
+}

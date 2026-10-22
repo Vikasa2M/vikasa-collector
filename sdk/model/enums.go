@@ -170,6 +170,69 @@ func (c FaultCategory) String() string {
 	}
 }
 
+// FaultType is the adapter's classification of a raised fault. The wire maps
+// kind and component from Type and GateID; Fault.ID stays a stable human
+// identity for synth diffs and the wire fault_id field.
+type FaultType uint8
+
+// FaultType values. The zero value, FaultTypeUnknown, means the adapter did
+// not classify the fault (NTCIP and other non-ACS producers today).
+const (
+	FaultTypeUnknown FaultType = iota
+	FaultTypeGateFailedToClose
+	FaultTypeGateFailedToOpen
+	FaultTypeGateEmergencyStop
+	FaultTypeGateCommandRefused
+	FaultTypeGateInvalidInputs
+	FaultTypeCabinetLineFilter
+	FaultTypeCabinetSurgeProtector
+	FaultTypeCabinetDoor
+	FaultTypeCabinetGateEstop
+	FaultTypePLCFault
+	FaultTypePLCCabinetIDChanged
+	FaultTypePLCCabinetIDMismatch
+	FaultTypePLCProgramCRCMismatch
+	FaultTypePLCConfigCRCMismatch
+	FaultTypePLCNotScanning
+)
+
+func (t FaultType) String() string {
+	switch t {
+	case FaultTypeGateFailedToClose:
+		return "failed-to-close"
+	case FaultTypeGateFailedToOpen:
+		return "failed-to-open"
+	case FaultTypeGateEmergencyStop:
+		return "emergency-stop"
+	case FaultTypeGateCommandRefused:
+		return "command-refused"
+	case FaultTypeGateInvalidInputs:
+		return "invalid-inputs"
+	case FaultTypeCabinetLineFilter:
+		return "line-filter"
+	case FaultTypeCabinetSurgeProtector:
+		return "surge-protector"
+	case FaultTypeCabinetDoor:
+		return "door"
+	case FaultTypeCabinetGateEstop:
+		return "gate-estop"
+	case FaultTypePLCFault:
+		return "plc-fault"
+	case FaultTypePLCCabinetIDChanged:
+		return "cabinet-id-changed"
+	case FaultTypePLCCabinetIDMismatch:
+		return "cabinet-id-mismatch"
+	case FaultTypePLCProgramCRCMismatch:
+		return "program-crc-mismatch"
+	case FaultTypePLCConfigCRCMismatch:
+		return "config-crc-mismatch"
+	case FaultTypePLCNotScanning:
+		return "not-scanning"
+	default:
+		return "unknown"
+	}
+}
+
 // DataQuality is the sensor's own assessment of a measurement.
 //
 // QualityUnknown is the zero value and means the sensor did not say. That is

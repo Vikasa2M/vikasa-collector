@@ -2,7 +2,6 @@ package openits
 
 import (
 	"fmt"
-	"strings"
 
 	cctvv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/cctv/v1"
 	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
@@ -115,7 +114,7 @@ func flashCauseIdentity(c model.FlashCause) (string, bool) {
 //
 // CategoryUnknown is the zero value, so it is the common case for any adapter
 // that has not classified its faults yet; it must not silently suppress them.
-func faultKindIdentity(c model.FaultCategory, deviceKind, faultID string) (string, bool) {
+func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultType) (string, bool) {
 	switch deviceKind {
 	case "asc":
 		switch c {
@@ -197,17 +196,17 @@ func faultKindIdentity(c model.FaultCategory, deviceKind, faultID string) (strin
 	case "acs":
 		// ACS gate/cabinet alarms share CategoryCabinet on the domain side;
 		// leaf identities live under openits-reversible-lane-types and are
-		// selected from the structured FaultID the Cameleon adapter emits.
-		// Clears carry Category (ADR 0024); CategoryUnknown still maps to base.
+		// selected from FaultType. Clears carry Category and Type (ADR 0024);
+		// CategoryUnknown still maps to base.
 		if c == model.CategoryUnknown {
 			return rlTypes + "reversible-lane-fault-event-kind", true
 		}
-		switch {
-		case strings.HasSuffix(faultID, "/failed-to-close"):
+		switch ft {
+		case model.FaultTypeGateFailedToClose:
 			return rlTypes + "reversible-lane-fault-gate-failed-to-close", true
-		case strings.HasSuffix(faultID, "/failed-to-open"):
+		case model.FaultTypeGateFailedToOpen:
 			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
-		case strings.HasSuffix(faultID, "/estop") && strings.HasPrefix(faultID, "gate/"):
+		case model.FaultTypeGateEmergencyStop:
 			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
 		default:
 			// Cabinet faults, plc/*, command-refused, invalid-inputs, and any
@@ -219,20 +218,15 @@ func faultKindIdentity(c model.FaultCategory, deviceKind, faultID string) (strin
 	}
 }
 
-// gateComponent names the gate a gate-scoped fault concerns. Cabinet faults
-// and any id that is not gate/<gate-id>/<suffix> return nil.
-func gateComponent(faultID string) *typesv1.ComponentRef {
-	const prefix = "gate/"
-	if !strings.HasPrefix(faultID, prefix) {
-		return nil
-	}
-	id, _, ok := strings.Cut(faultID[len(prefix):], "/")
-	if !ok || id == "" {
+// gateComponent names the gate a gate-scoped fault concerns. Empty GateID
+// (cabinet and PLC faults) returns nil.
+func gateComponent(gateID string) *typesv1.ComponentRef {
+	if gateID == "" {
 		return nil
 	}
 	return &typesv1.ComponentRef{
 		ComponentClass: rlTypes + "rl-component-gate",
-		ComponentId:    id,
+		ComponentId:    gateID,
 	}
 }
 

@@ -198,6 +198,7 @@ func TestPLCNotScanningFailedReadNeitherClearsNorReraises(t *testing.T) {
 	fault := model.Fault{
 		ID: "plc/not-scanning", Severity: model.SeverityCritical,
 		Category: model.CategoryCabinet, Description: "PLC watchdog has not advanced",
+		Type: model.FaultTypePLCNotScanning,
 	}
 	at := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	with := &model.Snapshot{

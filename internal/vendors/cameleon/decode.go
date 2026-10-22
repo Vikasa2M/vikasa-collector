@@ -71,33 +71,36 @@ func gatePositionFromBits(bits uint16) model.GatePosition {
 // gateFaults returns raised Fault entries for a gate's alarm bits.
 func gateFaults(g model.GateReading) []model.Fault {
 	var out []model.Fault
-	add := func(suffix, desc string, sev model.FaultSeverity) {
+	add := func(suffix string, ft model.FaultType, desc string, sev model.FaultSeverity) {
 		out = append(out, model.Fault{
 			ID:          "gate/" + g.ID + "/" + suffix,
 			Severity:    sev,
 			Category:    model.CategoryCabinet,
 			Description: desc,
+			Type:        ft,
+			GateID:      g.ID,
 		})
 	}
 	if g.FailedClose {
-		add("failed-to-close", "gate failed to close", model.SeverityMajor)
+		add("failed-to-close", model.FaultTypeGateFailedToClose, "gate failed to close", model.SeverityMajor)
 	}
 	if g.FailedOpen {
-		add("failed-to-open", "gate failed to open", model.SeverityMajor)
+		add("failed-to-open", model.FaultTypeGateFailedToOpen, "gate failed to open", model.SeverityMajor)
 	}
 	if g.Estop {
-		add("estop", "gate emergency stop", model.SeverityCritical)
+		add("estop", model.FaultTypeGateEmergencyStop, "gate emergency stop", model.SeverityCritical)
 	}
 	if g.CommandRefused {
 		// Cameleon guide: refused because of a PLC interlock, or because the
 		// device is offline, or because the PLC cabinet ID is invalid.
-		add("command-refused", "command refused because of PLC interlock or device is offline or invalid PLC cabinet ID", model.SeverityWarning)
+		add("command-refused", model.FaultTypeGateCommandRefused,
+			"command refused because of PLC interlock or device is offline or invalid PLC cabinet ID", model.SeverityWarning)
 	}
 	if g.InvalidInputs {
 		// Bit 14 is the project-configured InvalidInputs alarm. The guide's
 		// table does not define it; the offline/cabinet-ID wording belongs
 		// to bit 13.
-		add("invalid-inputs", "ACS project alarm 5: invalid inputs", model.SeverityMajor)
+		add("invalid-inputs", model.FaultTypeGateInvalidInputs, "ACS project alarm 5: invalid inputs", model.SeverityMajor)
 	}
 	return out
 }
@@ -110,24 +113,28 @@ func cabinetFaults(lf, sp, door, estop uint16) []model.Fault {
 		out = append(out, model.Fault{
 			ID: "cabinet/lf-fault", Severity: model.SeverityMinor,
 			Category: model.CategoryCabinet, Description: "ACS line filter fault active",
+			Type: model.FaultTypeCabinetLineFilter,
 		})
 	}
 	if sp&1 != 0 {
 		out = append(out, model.Fault{
 			ID: "cabinet/sp-fault", Severity: model.SeverityMinor,
 			Category: model.CategoryCabinet, Description: "ACS surge protector fault active",
+			Type: model.FaultTypeCabinetSurgeProtector,
 		})
 	}
 	if door&1 != 0 {
 		out = append(out, model.Fault{
 			ID: "cabinet/door", Severity: model.SeverityWarning,
 			Category: model.CategoryCabinet, Description: "ACS cabinet door switch active",
+			Type: model.FaultTypeCabinetDoor,
 		})
 	}
 	if estop&1 != 0 {
 		out = append(out, model.Fault{
 			ID: "cabinet/gate-estop", Severity: model.SeverityCritical,
 			Category: model.CategoryCabinet, Description: "ACS cabinet-wide gate E-STOP active",
+			Type: model.FaultTypeCabinetGateEstop,
 		})
 	}
 	return out

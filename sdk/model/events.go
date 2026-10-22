@@ -92,6 +92,8 @@ type FaultRaised struct {
 	Category      FaultCategory
 	Description   string
 	FirstObserved time.Time // when the fault began (ADR 0024)
+	Type          FaultType
+	GateID        string
 }
 
 func (FaultRaised) EventKind() string { return "fault-raised" }
@@ -104,6 +106,8 @@ type FaultCleared struct {
 	FaultID       string
 	Category      FaultCategory // the cleared fault's, so the clear names the same class as its raise
 	FirstObserved time.Time     // when the cleared fault began (ADR 0024)
+	Type          FaultType     // remembered with the raise so the clear maps the same kind
+	GateID        string
 }
 
 func (FaultCleared) EventKind() string { return "fault-cleared" }
