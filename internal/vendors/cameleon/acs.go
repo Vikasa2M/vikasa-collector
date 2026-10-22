@@ -61,10 +61,13 @@ type acs struct {
 	plc              plcCfg
 	now              func() time.Time
 	// Watchdog observation. wdHave is false until a published poll has seen
-	// the counter, and after a failed read or a reconnect.
-	wdHave  bool
-	wdLast  uint16
-	wdSince time.Time
+	// the counter. wdStalled is true once plc/not-scanning has been raised
+	// for the current (wdLast, wdSince) window; a failed read must not erase
+	// that window, or the next good poll would false-clear and re-raise.
+	wdHave    bool
+	wdLast    uint16
+	wdSince   time.Time
+	wdStalled bool
 }
 
 // NewACS wraps an already-open word reader (fixtures / live tests).
@@ -98,6 +101,7 @@ func (a *acs) Close() error {
 	err := a.client.Close()
 	a.client = nil
 	a.wdHave = false
+	a.wdStalled = false
 	return err
 }
 
@@ -125,7 +129,7 @@ func (a *acs) dropClient() {
 		_ = a.client.Close()
 		a.client = nil
 	}
-	a.wdHave = false
+	a.clearWatchdogUnlessStalled()
 }
 
 func (a *acs) Read(ctx context.Context) (*model.Snapshot, error) {
@@ -206,9 +210,10 @@ func (a *acs) Read(ctx context.Context) (*model.Snapshot, error) {
 	// The fault set is one facet built from gate alarm bits, cabinet words,
 	// and the PLC status words together. If any of that is unreadable the
 	// set is incomplete, and publishing the partial list would look like the
-	// missing faults cleared. A failed observation also drops the watchdog
-	// window so the next good poll cannot raise or clear plc/not-scanning
-	// from time the PLC was not seen.
+	// missing faults cleared. A failed observation drops a watchdog window
+	// that has not yet raised plc/not-scanning (a blind gap must not create
+	// a stall), but keeps an already-raised stall so the next good poll can
+	// clear it only when the counter advances.
 	if faultErr != nil {
 		a.resetWatchdog()
 		snap.Errors = append(snap.Errors, model.FacetError{
@@ -290,16 +295,34 @@ func (a *acs) stalled(counter uint16, now time.Time) bool {
 		a.wdHave = true
 		a.wdLast = counter
 		a.wdSince = now
+		a.wdStalled = false
 		return false
 	}
 	if a.plc.watchdogStall <= 0 {
 		return false
 	}
-	return !now.Before(a.wdSince.Add(a.plc.watchdogStall))
+	if now.Before(a.wdSince.Add(a.plc.watchdogStall)) {
+		return false
+	}
+	a.wdStalled = true
+	return true
 }
 
+// resetWatchdog drops a watchdog window that has not yet raised
+// plc/not-scanning. An already-raised stall is kept so a failed read cannot
+// false-clear it.
 func (a *acs) resetWatchdog() {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.clearWatchdogUnlessStalled()
+}
+
+// clearWatchdogUnlessStalled must be called with a.mu held.
+func (a *acs) clearWatchdogUnlessStalled() {
+	if a.wdStalled {
+		return
+	}
 	a.wdHave = false
-	a.mu.Unlock()
+	a.wdLast = 0
+	a.wdSince = time.Time{}
 }

@@ -123,22 +123,69 @@ func TestPLCWatchdogStallAndWrap(t *testing.T) {
 	}
 }
 
-func TestPLCWatchdogFailedReadRestartsTheWindow(t *testing.T) {
+func TestPLCWatchdogFailedReadPreservesRaisedStall(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	words := make([]uint16, 110)
+	words[0] = 1 << 11
+	a := plcACS(words, plcCfg{watchdogStall: 5 * time.Second}, func() time.Time { return now })
+	e := synth.NewEngine(synth.NewFaultDiffer())
+
+	if evs := e.Apply(mustSnap(t, a)); len(evs) != 0 {
+		t.Fatalf("first sample = %v", evs)
+	}
+	now = now.Add(5 * time.Second)
+	evs := e.Apply(mustSnap(t, a))
+	if len(evs) != 1 {
+		t.Fatalf("stall raise = %v", evs)
+	}
+	if _, ok := evs[0].(model.FaultRaised); !ok {
+		t.Fatalf("stall raise type %T", evs[0])
+	}
+
+	a.client = &errClient{err: context.DeadlineExceeded}
+	if _, err := a.Read(context.Background()); err == nil {
+		t.Fatal("expected hard error")
+	}
+	if !a.wdHave || !a.wdStalled {
+		t.Fatalf("failed read erased the raised stall: wdHave=%v wdStalled=%v", a.wdHave, a.wdStalled)
+	}
+
+	a.client = &staticWords{start: 90, words: words}
+	now = now.Add(time.Second)
+	if evs := e.Apply(mustSnap(t, a)); len(evs) != 0 {
+		t.Fatalf("unchanged counter after failed read = %v; must keep plc/not-scanning raised", evs)
+	}
+	if !faultIDs(t, mustSnap(t, a))["plc/not-scanning"] {
+		t.Fatal("unchanged counter must still raise plc/not-scanning")
+	}
+
+	words[0] = 2 << 11
+	now = now.Add(time.Second)
+	evs = e.Apply(mustSnap(t, a))
+	if len(evs) != 1 {
+		t.Fatalf("changed counter = %v", evs)
+	}
+	if _, ok := evs[0].(model.FaultCleared); !ok {
+		t.Fatalf("changed counter type %T", evs[0])
+	}
+}
+
+func TestPLCWatchdogFailedReadBeforeStallRestartsTheWindow(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	words := make([]uint16, 110)
 	words[0] = 1 << 11
 	a := plcACS(words, plcCfg{watchdogStall: 5 * time.Second}, func() time.Time { return now })
 	_ = mustSnap(t, a)
-	now = now.Add(5 * time.Second)
-	if !faultIDs(t, mustSnap(t, a))["plc/not-scanning"] {
-		t.Fatal("wanted the stall before the failed read")
+	now = now.Add(4 * time.Second)
+	if faultIDs(t, mustSnap(t, a))["plc/not-scanning"] {
+		t.Fatal("must not stall before the window")
 	}
 	a.client = &errClient{err: context.DeadlineExceeded}
 	if _, err := a.Read(context.Background()); err == nil {
 		t.Fatal("expected hard error")
 	}
-	if a.wdHave {
-		t.Fatal("failed read left the watchdog window running")
+	if a.wdHave || a.wdStalled {
+		t.Fatalf("blind gap must reset: wdHave=%v wdStalled=%v", a.wdHave, a.wdStalled)
 	}
 	a.client = &staticWords{start: 90, words: words}
 	now = now.Add(5 * time.Second)
