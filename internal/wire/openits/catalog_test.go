@@ -110,14 +110,19 @@ const (
 	// that can read the fact, not modelled ahead of a device (2026-10-22).
 	owedNeedsADeviceFact unmappedReason = "owed: needs a fact no adapter reads yet"
 
-	// Signal control is wired, but these have not been assessed one by one.
-	// Most are per-cycle events an SNMP poller structurally cannot observe
-	// (phase, overlap, pedestrian, detector transitions) and belong to a
-	// controller that emits natively (ADR 0016); some may be pollable.
-	// Assessing one means mapping it (if what it needs is already polled),
-	// moving it to owedNeedsADeviceFact (if one more device object would
-	// serve), or recording why polling cannot see it.
-	signalControlNotAssessed unmappedReason = "signal control: not yet assessed per event"
+	// The event is defined as a transition in the controller's
+	// high-resolution event log (the Indiana hi-res codes), carrying the
+	// log's own timestamp and wire identifier. Most are sub-second (a phase
+	// interval, a detector actuation, a pedestrian call), so a one-second
+	// poll would miss some and back-date none: it would publish an
+	// inference with the log's precision claimed. They belong to a
+	// controller that emits natively, the end state ADR 0016 expects.
+	needsHighResLog unmappedReason = "needs the controller's high-resolution event log; polling cannot see it"
+
+	// The event belongs to an adaptive signal control system (TSAM), not to
+	// the controller: its engagement state and the recommendations it
+	// applies live in that system, which publishes them itself.
+	reportedByAdaptiveSystem unmappedReason = "reported by the adaptive control system, not read from the controller"
 )
 
 // unmapped lists every ce-type the pinned catalog declares and this emitter
@@ -169,16 +174,33 @@ var unmapped = map[string]unmappedReason{
 	"openits.traffic-sensor.traffic-sensor-status-report.v1": owedNeedsADeviceFact,
 	// zone-occupancy
 	"openits.zone-occupancy.zone-occupancy-changed.v1": owedNeedsADeviceFact,
-	// signal-control
-	"openits.signal-control.controller-fault-event.v1":      signalControlNotAssessed,
-	"openits.signal-control.coordination-change.v1":         signalControlNotAssessed,
-	"openits.signal-control.detector-transition.v1":         signalControlNotAssessed,
-	"openits.signal-control.overlap-change.v1":              signalControlNotAssessed,
-	"openits.signal-control.pedestrian-event.v1":            signalControlNotAssessed,
-	"openits.signal-control.phase-state-change.v1":          signalControlNotAssessed,
-	"openits.signal-control.preemption-event.v1":            signalControlNotAssessed,
-	"openits.signal-control.tsam-mode-changed.v1":           signalControlNotAssessed,
-	"openits.signal-control.tsam-recommendation-applied.v1": signalControlNotAssessed,
-	"openits.signal-control.tsp-event.v1":                   signalControlNotAssessed,
-	"openits.signal-control.unmapped-event.v1":              signalControlNotAssessed,
+	// signal-control (assessed 2026-10-23)
+	//
+	// controller-fault-event is fault-raised's hi-res-log counterpart; the
+	// polled shortAlarmStatus already publishes as fault-raised/cleared.
+	// detector-transition's faults are covered the same way; its on/off
+	// actuations are sub-second. tsp-event is check-in/out messages and
+	// NTCIP 1211 priority outcomes, not NTCIP 1202 state. unmapped-event
+	// types a hi-res row the decoder could not; a poller has no rows.
+	//
+	// Two are owed, each from one more NTCIP 1202 object (needs hardware to
+	// confirm what a controller reports):
+	//   - preemption-event: each preempt's stage (preemptState: entry,
+	//     track service, dwell, exit), which lasts seconds, not
+	//     milliseconds; ntcip-asc already polls the aggregate preempt status.
+	//   - coordination-change: the cycle length, offset and splits of the
+	//     running pattern (patternTable, splitTable). Its pattern-change kind
+	//     is plan-applied, already mapped; its MAX-in-effect kinds are
+	//     per-cycle and stay out of reach.
+	"openits.signal-control.controller-fault-event.v1":      needsHighResLog,
+	"openits.signal-control.coordination-change.v1":         owedNeedsADeviceFact,
+	"openits.signal-control.detector-transition.v1":         needsHighResLog,
+	"openits.signal-control.overlap-change.v1":              needsHighResLog,
+	"openits.signal-control.pedestrian-event.v1":            needsHighResLog,
+	"openits.signal-control.phase-state-change.v1":          needsHighResLog,
+	"openits.signal-control.preemption-event.v1":            owedNeedsADeviceFact,
+	"openits.signal-control.tsam-mode-changed.v1":           reportedByAdaptiveSystem,
+	"openits.signal-control.tsam-recommendation-applied.v1": reportedByAdaptiveSystem,
+	"openits.signal-control.tsp-event.v1":                   needsHighResLog,
+	"openits.signal-control.unmapped-event.v1":              needsHighResLog,
 }
