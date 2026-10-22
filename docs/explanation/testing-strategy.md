@@ -146,16 +146,28 @@ contracts.
 openits-models' own Tier 2 conformance checks (`tools/conformance/tests`),
 imported rather than copied, against events a live collector publishes. The
 collector runs against an embedded NATS server, with scripted
-signal-controller and sign adapters. Before any check runs, the test waits
+signal-controller, sign, camera, traffic-sensor and perception adapters. Before any check runs, the test waits
 until every event type in its `want` list has been published, so no check
 can pass for lack of the event it judges. It then runs each device kind's
-event-stream checks: subject shape, `ce-type` format, `ce-source` URN,
-`ce-id` present, and the preemption and DMS event shapes. The rest of each
-suite judges a device's YANG state tree, which a collector never publishes.
-Checks are looked up by name, so one the harness renames or drops fails the
-test instead of silently not running. Because the checks come from the
-pinned release, a pin bump that tightens the profile shows up here with no
-edit on our side.
+event-stream checks:
+- subject shape, `ce-type` format, `ce-source` URN, and `ce-id` presence;
+- per-device sequence continuity;
+- that each fault kind matches its service;
+- each service's event shapes, including whether class breakdowns
+  reconcile with their totals.
+
+The rest of each suite judges a device's YANG state tree, which a collector
+never publishes, or needs an event the collector does not emit.
+`TestEveryHarnessCheckIsRunOrRuledOut` holds those lists to the pinned
+harness in both directions. A check the harness renames or drops fails
+instead of silently not running, and a check a release adds fails until it
+is classified. Because the checks come from the pinned release, a pin bump
+that tightens the profile shows up here with no edit on our side.
+
+It has paid for itself. When it was extended to perception, it found that
+one domain class breakdown fed two reports whose breakdowns must sum to
+different totals, crossed and observed. `ZoneMeasurement` now carries one
+breakdown for each.
 
 **`internal/app/conformance_test.go`** covers what the harness does not:
 the binding's header constants (`ce-specversion`, `ce-datacontenttype`, and

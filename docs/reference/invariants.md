@@ -35,7 +35,7 @@ so the gap is visible rather than implied.
 | Subjects are operator-configurable; the CloudEvents envelope stays canonical | ADR 0009, ADR 0011, ADR 0015 | `scripts/lint-boundary.sh` (Rule E), `internal/config` |
 | openits-models is not reshaped to suit the collector | ADR 0016 | Review (manual) |
 | Every mapped ce-type has a byte-exact golden | ADR 0008 | `internal/wire/openits/golden_test.go` |
-| The catalog stream passes the openits-models Tier 2 harness | openits-models NATS profile; ADR 0011 | `TestCollectorStreamPassesTheTier2Harness` |
+| The catalog stream passes the openits-models Tier 2 harness | openits-models NATS profile; ADR 0011 | `TestCollectorStreamPassesTheTier2Harness`, `TestEveryHarnessCheckIsRunOrRuledOut` |
 | `asyncapi.yaml` documents exactly the collector-owned ce-types | ADR 0007 | `TestAsyncAPICoversEveryEmittedType`, `TestAsyncAPIDocumentsNothingUnemittable`, `TestAsyncAPIAddressesMatchRenderedSubjects` |
 | No fixtures, no merge | ADR 0008 | Review (manual) — recordings come from `cmd/collector/record.go`, and a recording without provenance fails to load (`TestReadRejects`) |
 | Every guard must be shown to fail | Practice (no ADR; promoted here) | `make lint-boundary-selftest`, `make lint-boundary-replace-selftest`, `make lint-boundary-tag-selftest`, `make lint-boundary-independent-selftest` |
@@ -339,16 +339,22 @@ judges).
 Violating this looks like catalog events that encode correctly but break
 the profile's envelope or subject rules — a subject outside the seven-token
 `openits.` shape, a malformed ce-type or `ce-source` URN, a missing
-`ce-id`, or a per-service event shape the harness checks for signal control
-and DMS. `TestCollectorStreamPassesTheTier2Harness`
+`ce-id`, or a per-service event shape the harness checks.
+`TestCollectorStreamPassesTheTier2Harness`
 (`internal/wire/tier2`) runs the real collector against an embedded
-`nats-server`, with scripted signal-controller and sign devices, and runs
+`nats-server`, with scripted signal-controller, sign, camera,
+traffic-sensor and perception devices, and runs
 openits-models' own Tier 2 checks (`tools/conformance/tests`, imported
 from the pinned release rather than transcribed) over everything published
 on `openits.>`. It runs on every `go test ./...` and needs no network or
 external broker. It judges headers and subjects, not payload bytes — those
 are locked by the goldens above. The test names each harness check it runs,
 and fails if the pinned release no longer has one.
+`TestEveryHarnessCheckIsRunOrRuledOut` covers the other direction: every
+check the pinned release defines for those kinds is either run or ruled out,
+either as judging the device's state tree or as needing an event the
+collector does not publish. So a check a new release adds fails until
+someone decides which it is.
 
 ## `asyncapi.yaml` documents exactly the collector-owned ce-types
 
