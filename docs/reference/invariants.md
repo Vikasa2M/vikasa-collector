@@ -37,7 +37,7 @@ so the gap is visible rather than implied.
 | Every mapped ce-type has a byte-exact golden | ADR 0008 | `internal/wire/openits/golden_test.go` |
 | The catalog stream passes the openits-models Tier 2 harness | openits-models NATS profile; ADR 0011 | `TestCollectorStreamPassesTheTier2Harness` |
 | `asyncapi.yaml` documents exactly the collector-owned ce-types | ADR 0007 | `TestAsyncAPICoversEveryEmittedType`, `TestAsyncAPIDocumentsNothingUnemittable`, `TestAsyncAPIAddressesMatchRenderedSubjects` |
-| No fixtures, no merge | ADR 0008 | Review (manual) — no fixture recorder exists yet |
+| No fixtures, no merge | ADR 0008 | Review (manual) — recordings come from `cmd/collector/record.go`, and a recording without provenance fails to load (`TestReadRejects`) |
 | Every guard must be shown to fail | Practice (no ADR; promoted here) | `make lint-boundary-selftest`, `make lint-boundary-replace-selftest`, `make lint-boundary-tag-selftest` |
 
 ## Adapters and `sdk/` never import openits-models
@@ -379,10 +379,15 @@ table has never been validated against a physical controller — a tracked
 [known gap](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state),
 not a precedent.
 
-No tool in the repo records a device session, so nothing can check
-provenance automatically: this is enforced in PR review, and marked
-`Review (manual)`. When a fixture recorder exists, this row's enforcer
-should name it.
+`collector record-fixture` records a device session into a fixture file
+whose provenance (make, model, firmware, date) is required for it to load
+at all — see
+[`record-fixtures-from-a-device.md`](../how-to/record-fixtures-from-a-device.md).
+That makes a recording checkable, but nothing can stop a PR from replaying
+a hand-typed map instead, or prove a file came from the device its
+provenance names. So the rule itself stays enforced in PR review, and
+marked `Review (manual)`: the reviewer's question becomes "where is the
+recording?", which the recorder makes cheap to answer.
 
 ## Every guard must be shown to fail
 
