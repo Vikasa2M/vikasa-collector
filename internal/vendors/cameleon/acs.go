@@ -126,7 +126,13 @@ func (a *acs) dropClient() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client != nil {
-		_ = a.client.Close()
+		// Error path: tear down immediately. A courtesy Close can wait up to
+		// closeBudget on a silent peer and would stretch the failed poll.
+		if c, ok := a.client.(interface{ CloseNow() error }); ok {
+			_ = c.CloseNow()
+		} else {
+			_ = a.client.Close()
+		}
 		a.client = nil
 	}
 	a.clearWatchdogUnlessStalled()

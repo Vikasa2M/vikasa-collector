@@ -20,6 +20,10 @@ import (
 
 const DefaultPort = 18245
 
+// closeBudget bounds the courtesy write/read in Close so a silent peer
+// cannot hold the poller for the full client timeout.
+const closeBudget = 500 * time.Millisecond
+
 // Memory type codes used at SRTP request byte 43.
 const (
 	MemR      byte = 0x08 // %R register word
@@ -53,6 +57,7 @@ type Client struct {
 }
 
 // Dial connects to host:port, completes the SRTP init handshake, and returns a client.
+// The handshake is bounded by ctx (via armDeadline), not only by timeout.
 func Dial(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
 	if timeout <= 0 {
 		timeout = 3 * time.Second
@@ -61,7 +66,7 @@ func Dial(ctx context.Context, addr string, timeout time.Duration) (*Client, err
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
-	c, err := New(conn, timeout)
+	c, err := NewWithContext(ctx, conn, timeout)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -69,10 +74,16 @@ func Dial(ctx context.Context, addr string, timeout time.Duration) (*Client, err
 	return c, nil
 }
 
-// New completes the SRTP handshake on an already-open connection.
-// Tests use it to wrap conn (for example to record frames) before the
-// handshake. The caller owns conn; Close closes it.
+// New completes the SRTP handshake on an already-open connection using the
+// client timeout alone (no poll context). Tests and the recorder use it to
+// wrap conn before the handshake. Prefer NewWithContext when a deadline is
+// available. The caller owns conn; Close closes it.
 func New(conn net.Conn, timeout time.Duration) (*Client, error) {
+	return NewWithContext(context.Background(), conn, timeout)
+}
+
+// NewWithContext is like New but bounds the handshake with ctx via armDeadline.
+func NewWithContext(ctx context.Context, conn net.Conn, timeout time.Duration) (*Client, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("nil connection")
 	}
@@ -80,39 +91,64 @@ func New(conn net.Conn, timeout time.Duration) (*Client, error) {
 		timeout = 3 * time.Second
 	}
 	c := &Client{conn: conn, timeout: timeout, seq: 1}
-	if err := c.init(); err != nil {
+	if err := c.init(ctx); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-// Close ends the SRTP session. It shares ioMu with reads so a close cannot
-// Read the reply that belongs to an in-flight ReadMemory.
+// Close ends the SRTP session with a short courtesy write/read, bounded by
+// closeBudget so a silent peer cannot stall for the full client timeout.
+// It shares ioMu with reads so a close cannot Read the reply that belongs
+// to an in-flight ReadMemory.
 func (c *Client) Close() error {
+	return c.close(true)
+}
+
+// CloseNow closes the TCP connection immediately with no courtesy exchange.
+// Use on the error path after a failed handshake or read.
+func (c *Client) CloseNow() error {
+	return c.close(false)
+}
+
+func (c *Client) close(courtesy bool) error {
 	c.ioMu.Lock()
 	defer c.ioMu.Unlock()
 	if c.conn == nil {
 		return nil
 	}
-	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
-	_, _ = c.conn.Write(make([]byte, 56)) // common close/ack pattern
-	buf := make([]byte, 64)
-	_, _ = c.conn.Read(buf)
+	if courtesy {
+		_ = c.conn.SetDeadline(time.Now().Add(closeBudget))
+		_, _ = c.conn.Write(make([]byte, 56)) // common close/ack pattern
+		buf := make([]byte, 64)
+		_, _ = c.conn.Read(buf)
+	}
 	err := c.conn.Close()
 	c.conn = nil
 	return err
 }
 
-func (c *Client) init() error {
-	if err := c.conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+func (c *Client) init(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
+	stop, err := armDeadline(ctx, c.conn, c.timeout)
+	if err != nil {
+		return err
+	}
+	defer stop()
 	if _, err := c.conn.Write(make([]byte, 56)); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("init write: %w", err)
 	}
 	resp := make([]byte, 1024)
 	n, err := c.conn.Read(resp)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("init read: %w", err)
 	}
 	if n < 1 || resp[0] != 0x01 {

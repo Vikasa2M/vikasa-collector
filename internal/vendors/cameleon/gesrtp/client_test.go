@@ -293,3 +293,129 @@ func TestCloseDuringReadDoesNotRace(t *testing.T) {
 		t.Fatal("close did not finish")
 	}
 }
+
+// silentListener accepts one TCP connection and never reads or writes.
+func silentListener(t *testing.T) (addr string, closeFn func()) {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		<-stop
+	}()
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		close(stop)
+	}
+}
+
+// handshakeThenSilent accepts, completes the SRTP init ack, then never replies
+// to subsequent reads. Used to test read/close deadlines after a live session.
+func handshakeThenSilent(t *testing.T) (addr string, closeFn func()) {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		init := make([]byte, 56)
+		if _, err := io.ReadFull(conn, init); err != nil {
+			return
+		}
+		ack := make([]byte, 56)
+		ack[0] = 0x01
+		if _, err := conn.Write(ack); err != nil {
+			return
+		}
+		<-stop
+	}()
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		close(stop)
+	}
+}
+
+func TestDialHandshakeRespectsContextAgainstSilentPeer(t *testing.T) {
+	addr, closeFn := silentListener(t)
+	defer closeFn()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := Dial(ctx, addr, 5*time.Second)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("Dial succeeded against a silent peer")
+	}
+	if elapsed > 200*time.Millisecond+300*time.Millisecond {
+		t.Fatalf("Dial took %v; want within ctx 200ms + 300ms slack", elapsed)
+	}
+}
+
+func TestReadRespectsContextAgainstSilentPeer(t *testing.T) {
+	addr, closeFn := handshakeThenSilent(t)
+	defer closeFn()
+	c, err := Dial(context.Background(), addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.CloseNow() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = c.ReadWords(ctx, MemR, 1, 2)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("ReadWords succeeded against a silent peer")
+	}
+	if elapsed > 200*time.Millisecond+300*time.Millisecond {
+		t.Fatalf("ReadWords took %v; want within ctx 200ms + 300ms slack", elapsed)
+	}
+}
+
+func TestCloseBudgetAgainstSilentPeer(t *testing.T) {
+	addr, closeFn := handshakeThenSilent(t)
+	defer closeFn()
+	c, err := Dial(context.Background(), addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Consume the silent read slot so Close's courtesy write is the next op.
+	start := time.Now()
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Fatalf("Close took %v; want <= 600ms", elapsed)
+	}
+}
+
+func TestCloseNowAgainstSilentPeer(t *testing.T) {
+	addr, closeFn := handshakeThenSilent(t)
+	defer closeFn()
+	c, err := Dial(context.Background(), addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := c.CloseNow(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Fatalf("CloseNow took %v; want <= 600ms", elapsed)
+	}
+}
