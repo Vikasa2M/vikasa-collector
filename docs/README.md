@@ -25,7 +25,7 @@ tooling keeps them in the git-ignored `.superpowers/` directory.
 |---|---|
 | See the repo for the first time | [`../README.md`](../README.md) — what the collector is, the pipeline in one diagram, and current status |
 | Learn the codebase by building something | [`tutorial/build-your-first-adapter.md`](tutorial/build-your-first-adapter.md) — from a fresh clone to a real event on the bus, in one sitting |
-| Contribute without access to any hardware | [`reference/starter-tasks.md`](reference/starter-tasks.md#starter-tasks-that-need-no-hardware) — open gaps where `make check` is the whole feedback loop |
+| Contribute without access to any hardware | [`reference/starter-tasks.md`](reference/starter-tasks.md#starter-tasks-that-need-no-hardware) — open gaps where `make check` is the whole feedback loop (none right now) |
 | Add a vendor adapter (needs access to the device) | [`reference/starter-tasks.md`](reference/starter-tasks.md) for the best first PR, [`how-to/add-a-vendor-adapter.md`](how-to/add-a-vendor-adapter.md) for the full guide, then the [`add-vendor-adapter`](../.claude/skills/add-vendor-adapter/SKILL.md) checklist |
 | Model device state nothing in `sdk/model` represents yet (a new facet) | [`how-to/add-a-domain-facet.md`](how-to/add-a-domain-facet.md), then [`add-domain-facet`](../.claude/skills/add-domain-facet/SKILL.md) |
 | Support a device that doesn't speak SNMP | [`add-transport`](../.claude/skills/add-transport/SKILL.md) — builds the `sdk/transport/<name>` package, not the adapter itself |
@@ -94,16 +94,22 @@ stale. Each entry carries one of four reasons:
 - **describes a command** (3) — the `openits.cctv.*` PTZ and lockout
   events. The collector commands nothing; the SDK has no command path at
   all ([ADR 0021](adr/0021-sdk-interfaces-ship-with-their-first-implementer.md)).
-- **signal control, not yet assessed per event** (11) — mostly high-rate
-  per-cycle events an SNMP poller cannot observe. They want a controller
-  that pushes, which is the end state ADR 0016 expects to make the
-  collector unnecessary. Each needs its own verdict.
-- **owed, needs a device fact** (3) — `traffic-sensor-status-report`,
-  `queue-state-changed` and `zone-occupancy-changed`. The services are
+- **needs the high-resolution event log** (7) — signal-control events
+  defined as transitions in the controller's hi-res log: phase, overlap,
+  pedestrian and detector transitions, controller faults, TSP and
+  unmapped rows. Most are sub-second, so a poller cannot see them
+  honestly. They want a controller that pushes, which is the end state
+  ADR 0016 expects to make the collector unnecessary.
+- **reported by the adaptive system** (2) — the two TSAM events belong to
+  the adaptive signal control system, not the controller.
+- **owed, needs a device fact** (5) — `traffic-sensor-status-report`,
+  `queue-state-changed`, `zone-occupancy-changed`, and signal control's
+  `preemption-event` (each preempt's stage) and `coordination-change`
+  (the running pattern's cycle, offset and splits). The services are
   wired, but each event reports something no facet holds and no adapter
-  reads: a sensor's operational status, its queue state, a zone's live
-  occupancy. They are added with the first adapter that can read the fact,
-  not modelled ahead of a device.
+  reads yet. They are added with the first adapter that can read the
+  fact, after checking what a real device reports, not modelled ahead of
+  one.
 
 *Closing it:* one ce-type at a time. A mapping needs the domain event, the
 `ceTypeFor` entry, the encoder case, a golden, and its `unmapped` line

@@ -10,8 +10,8 @@ access from the start, not as a formality at the end. That is the first
 track below.
 
 If you have no device, [the second track](#starter-tasks-that-need-no-hardware)
-is real work, not a consolation prize: each item is an open gap this repo
-already tracks against itself.
+lists the open gaps that need none, when there are any. Each is real work
+this repo tracks against itself, not a consolation prize.
 
 ## The safest first PR — if you have the device
 
@@ -82,16 +82,10 @@ walks a throwaway adapter end to end first.
 
 `make check` is the whole feedback loop for each of these.
 
-- **Assess one signal-control ce-type.** Eleven signal-control ce-types in
-  the `unmapped` allowlist in `internal/wire/openits/catalog_test.go` are
-  marked `signalControlNotAssessed`. Most are
-  per-cycle events (phase, overlap, pedestrian, detector transitions) that
-  an SNMP poller cannot observe, but each needs its own verdict: either it
-  can be derived from what `ntcip-asc` already polls, and is mapped; or
-  one more NTCIP object would serve, and it moves to
-  `owedNeedsADeviceFact`; or the allowlist records why polling cannot
-  see it. This is reading NTCIP 1202 and the catalog, not writing much
-  code.
+None are open right now. Every unmapped catalog ce-type has a verdict in
+the `unmapped` allowlist (`internal/wire/openits/catalog_test.go`), and the
+ones owed here each need a device that reports the fact. If you have one,
+the section above is for you.
 
 ## The reference implementation
 
