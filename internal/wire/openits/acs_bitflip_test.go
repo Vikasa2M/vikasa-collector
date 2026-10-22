@@ -24,6 +24,42 @@ import (
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
 
+// TestACSRecordedPollDeclinesUnmappedFaults boots the recorded ACS1 %R image
+// through synth + the openits emitter. The fixture raises plc/fault; until
+// the pending models PR lands that leaf, Encode declines it (loud-drop).
+func TestACSRecordedPollDeclinesUnmappedFaults(t *testing.T) {
+	words := make([]uint16, 110)
+	words[0] = 0x2E02 // fixture %R90: PLC fault bit
+	words[11] = 0x0025
+	words[14] = 0x0021
+	snap, err := cameleon.ReadBlock("acs-1", 90, words, []cameleon.GateWord{
+		{ID: "WG-1", Kind: model.GateKindWarning, DSW: 101},
+		{ID: "BG-1", Kind: model.GateKindBarrier, DSW: 104},
+	}, cameleon.CabinetWords{LFFault: 179, SPFault: 180, Door: 181, GateEstop: 182})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.DeviceKind = "acs"
+	evs := synth.NewEngine(synth.NewFaultDiffer()).Apply(snap)
+	em := New("collector", testEpoch)
+	declined := 0
+	for _, ev := range evs {
+		if _, ok := ev.(model.FaultRaised); !ok {
+			continue
+		}
+		_, ok, err := em.Encode(ev)
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		if !ok {
+			declined++
+		}
+	}
+	if declined != 1 {
+		t.Fatalf("recorded poll declined %d fault-raised events, want 1 (plc/fault)", declined)
+	}
+}
+
 // TestScriptedBitFlipCoverage flips every defined gate-word bit through the
 // ACS decoder and checks the CloudEvent the emitter produces. The block is
 // synthetic. There is no PLC address in this test.

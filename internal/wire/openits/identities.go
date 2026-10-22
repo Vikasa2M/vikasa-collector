@@ -194,12 +194,14 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			return dmsTypes + "dms-fault-event-kind", true
 		}
 	case "acs":
-		// ACS gate/cabinet alarms share CategoryCabinet on the domain side;
-		// leaf identities live under openits-reversible-lane-types and are
-		// selected from FaultType. Clears carry Category and Type (ADR 0024);
-		// CategoryUnknown still maps to base.
+		// ACS faults map only onto declared reversible-lane leaf identities.
+		// The v0.8.0 conformance rule rejects the service base kind
+		// (reversible-lane-fault-event-kind), so unmapped types decline rather
+		// than fall back. Pending models PR adds plc-fault, plc-configuration,
+		// cabinet-door, and gate-invalid-inputs leaves; until then those types
+		// take the loud-drop path. Clears carry Category and Type (ADR 0024).
 		if c == model.CategoryUnknown {
-			return rlTypes + "reversible-lane-fault-event-kind", true
+			return "", false
 		}
 		switch ft {
 		case model.FaultTypeGateFailedToClose:
@@ -208,10 +210,14 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
 		case model.FaultTypeGateEmergencyStop:
 			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
+		case model.FaultTypePLCNotScanning:
+			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypeGateCommandRefused:
+			return rlTypes + "reversible-lane-fault-interlock", true
+		case model.FaultTypeCabinetLineFilter, model.FaultTypeCabinetSurgeProtector:
+			return rlTypes + "reversible-lane-fault-power", true
 		default:
-			// Cabinet faults, plc/*, command-refused, invalid-inputs, and any
-			// other undeclared ACS fault use the service base identity in v0.8.0.
-			return rlTypes + "reversible-lane-fault-event-kind", true
+			return "", false
 		}
 	default:
 		return "", false

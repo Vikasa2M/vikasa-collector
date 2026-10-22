@@ -42,10 +42,10 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 		}
 
 	case model.FaultRaised:
-		// Unlike modes, an unmappable category does NOT decline the event —
-		// faultKindIdentity falls back to the service base identity. It only
-		// fails for a device kind this emitter does not serve, which the
-		// ce-type lookup above has already excluded.
+		// For most services an unmappable category falls back to the service
+		// base identity. ACS is the exception: the catalog rejects the base
+		// kind, so faultKindIdentity returns ok=false and Encode declines
+		// (loud-drop) rather than approximating a near-neighbour leaf.
 		kind, ok := faultKindIdentity(v.Category, v.DeviceKind, v.Type)
 		if !ok {
 			return nil, false
