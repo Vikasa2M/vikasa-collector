@@ -266,12 +266,20 @@ func gateOperatingModeFor(m model.GateMode) string {
 	}
 }
 
-// interlockBypassedFor reports Cameleon manual-non-interlocked mode only.
+// interlockBypassedFor maps Cameleon mode onto the optional wire leaf.
+// Automatic and Manual assert false; Manual Non-Interlocked asserts true;
+// Offline and Unknown leave the leaf unset (open question for the maintainer:
+// Offline could honestly claim false, but the mode already says the gate is
+// not under interlock control).
 func interlockBypassedFor(m model.GateMode) *bool {
-	if m == model.GateModeManualNonInterlocked {
+	switch m {
+	case model.GateModeAuto, model.GateModeManual:
+		return protoBool(false)
+	case model.GateModeManualNonInterlocked:
 		return protoBool(true)
+	default:
+		return nil
 	}
-	return nil
 }
 
 func protoBool(v bool) *bool { return &v }
