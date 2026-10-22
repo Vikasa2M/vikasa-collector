@@ -30,6 +30,12 @@ notes call it out.
 | Broker CA | `-nats-ca <path>` (optional) | For a `tls://` broker signed by a private CA. |
 | Environment | none | The collector reads no environment variables. |
 
+One other invocation exists, and it is not for a supervisor:
+`vikasa-collector record-fixture` polls one configured device once and
+writes a test fixture for its adapter, for a person at the device. It
+connects to no broker, and writes only the file its `-out` names. See
+[`record-fixtures-from-a-device.md`](../how-to/record-fixtures-from-a-device.md).
+
 ## Files and privileges
 
 - **Reads** the config, and the creds and CA files when given. **Writes

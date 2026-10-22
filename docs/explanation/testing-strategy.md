@@ -61,10 +61,12 @@ and hardware-free, so a maintainer can review an adapter by reading the
 mapping and the fixture.
 
 **What it cannot prove:** that the fixture resembles what a real device
-sends. A fixture is a Go map literal in the test file; the repo has no
-`testdata/` recordings. A value captured from a live device and a value
-typed in until the test passed produce the same source, the same test run,
-and the same green check.
+sends. A value captured from a live device and a value typed in until the
+test passed produce the same test run and the same green check. A file
+from `collector record-fixture` narrows this: it carries required
+provenance and was written by the adapter's own poll, and a hand edit to
+an octet string fails to load. It still cannot prove the device it names
+is the one it came from.
 
 The two shipped adapters show both sides. `ntcip-dms`'s fixture in
 `internal/vendors/ntcip/dms_test.go` is transcribed from live SNMP reads of
@@ -76,7 +78,7 @@ controller. That falls short of
 and the gap is tracked in
 [known gaps](../README.md#the-code-does-not-meet-a-bar-the-docs-correctly-state).
 [`record-fixtures-from-a-device.md`](../how-to/record-fixtures-from-a-device.md)
-is how to capture a real one.
+is how to record a real one.
 
 ### Provenance is a review question, not a test
 
@@ -85,9 +87,11 @@ by a reviewer reading the diff**, not asserted by CI. This matters in
 practice. While the `review-adapter-contribution` skill was being evaluated
 against synthetic adapter PRs, a review without the skill's guidance
 blocked a clean contribution twice, both times for the fixture being a Go
-literal (commit `5161b3f`). Every fixture in this repo is a Go literal, so
-that objection carries no information and would turn away a real
-contributor.
+literal (commit `5161b3f`). Every fixture in this repo at the time was a
+Go literal, so that objection carried no information and would have turned
+away a real contributor. Prefer a recorded file now that one can be made,
+but a transcribed literal with a provenance comment is still valid
+evidence.
 
 What a reviewer can usefully look at is the *values*, not the format:
 

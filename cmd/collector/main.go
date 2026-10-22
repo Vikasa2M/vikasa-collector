@@ -64,6 +64,10 @@ func exitCode(err error) int {
 // given writers, and failure is a returned error rather than os.Exit, so the
 // whole command line is testable.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "record-fixture" {
+		info, _ := debug.ReadBuildInfo()
+		return recordFixture(ctx, args[1:], stdout, stderr, resolveVersion(version, info))
+	}
 	fs := flag.NewFlagSet("collector", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to collector.yaml (required)")
