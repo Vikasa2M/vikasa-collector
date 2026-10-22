@@ -30,7 +30,7 @@ so the gap is visible rather than implied.
 | Config is the trust boundary; boot fails on the unrecognized | ADR 0014 | `internal/config`, `TestRunExitCodes` |
 | The broker credential comes from a file, never the URL | ADR 0022 | `internal/publish/security.go`, `TestValidateSecurity`, `TestCredentialsInTheURLAreRefusedUnlogged`, `TestStartErrorNeverContainsCredentials` |
 | Plaintext NATS only on loopback; TLS is always verified | ADR 0022 | `TestValidateSecurity`, `TestTLSBrokerIsVerifiedAgainstTheNamedCA` |
-| The documented least-privilege broker grant is sufficient | ADR 0022 | `TestLeastPrivilegeGrantIsSufficient` |
+| The documented least-privilege broker grant is sufficient | ADR 0022 | `TestLeastPrivilegeGrantIsSufficient`, `TestDeployGuideGrantMatchesTheTestedGrant` |
 | The management surface answers only on loopback | ADR 0022 | `TestValidateAddrIsLoopbackOnly`, `TestOnlyLoopbackHostHeadersAreServed`, `TestRunRejectsNonLoopbackStatusAddr` |
 | Subjects are operator-configurable; the CloudEvents envelope stays canonical | ADR 0009, ADR 0011, ADR 0015 | `internal/subject`, `internal/cloudevents`, `internal/config` |
 | openits-models is not reshaped to suit the collector | ADR 0016 | Review (manual) |
@@ -217,8 +217,12 @@ runs the collector against a broker that grants only that set, and fails
 on any permission violation while it provisions and writes both streams
 and creates, loads and writes the `VIKASA_SYNTH_STATE` bucket.
 
-The test holds its own copy of the grant. Keeping that copy identical to
-the deploy guide's is a review step; nothing compares the two.
+The test holds its own copy of the grant, so
+`TestDeployGuideGrantMatchesTheTestedGrant` (`internal/app/grant_doc_test.go`)
+holds the deploy guide's two copies — the grant table and the `nsc`
+command — to exactly that set, in both directions. A subject the collector
+needs that the guide leaves out fails it, and so does one the guide grants
+that the tested set does not.
 
 ## The management surface answers only on loopback
 
