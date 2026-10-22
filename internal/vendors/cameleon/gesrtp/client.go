@@ -197,6 +197,11 @@ func (c *Client) ReadMemory(ctx context.Context, memType byte, address0Based int
 	if address0Based < 0 {
 		return nil, fmt.Errorf("address must be >= 0")
 	}
+	// The wire encodes address and count as uint16. Reject ranges that would
+	// wrap instead of truncating with uint16().
+	if address0Based > 65535 || count > 65535 || address0Based+count > 65536 {
+		return nil, fmt.Errorf("address+count exceeds 16-bit memory range")
+	}
 
 	// Chunk at 6 words. A real ACS answers that size with a 0x94 follow-on
 	// (12 data bytes after the header) and answers the trailing 2-word

@@ -2,6 +2,7 @@ package cameleon
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // RegisterTo registers cameleon-acs. The connection block is
 //
 //	connection:
-//	  srtp: { address: "host:18245", timeout: "5s" }   # timeout optional
+//	  srtp: { address: "203.0.113.10:18245", timeout: "5s" }   # timeout optional
 //	  dsw:  { start: 90, length: 110 }
 //	  gates:
 //	    - { id: "WG-1", dsw: 101, kind: "warning" }
@@ -79,6 +80,9 @@ func parseACSBlock(conn map[string]any) (acsConn, error) {
 	if addr == "" {
 		return out, fmt.Errorf("connection.srtp.address required")
 	}
+	if err := validateSRTPAddress(addr); err != nil {
+		return out, err
+	}
 	out.addr = addr
 	out.timeout = 5 * time.Second
 	timeout, err := adapter.OptString("connection.srtp", rawSRTP, "timeout")
@@ -107,15 +111,18 @@ func parseACSBlock(conn map[string]any) (acsConn, error) {
 	if err != nil {
 		return out, err
 	}
-	if start < 1 {
-		return out, fmt.Errorf("connection.dsw.start must be a positive %%R address")
+	if start < 1 || start > 65535 {
+		return out, fmt.Errorf("connection.dsw.start must be an integer 1..65535")
 	}
 	length, err := requireInt("connection.dsw", rawDSW, "length")
 	if err != nil {
 		return out, err
 	}
-	if length < 1 {
-		return out, fmt.Errorf("connection.dsw.length must be a positive word count")
+	if length < 1 || length > 512 {
+		return out, fmt.Errorf("connection.dsw.length must be an integer 1..512")
+	}
+	if start+length-1 > 65535 {
+		return out, fmt.Errorf("connection.dsw.start+length-1 must be <= 65535")
 	}
 	out.dswStart, out.dswLen = start, length
 	out.plc.watchdogStall = 5 * time.Second
@@ -256,6 +263,26 @@ func parsePLCBlock(out *acsConn, m map[string]any) error {
 			return fmt.Errorf("connection.plc.watchdog_stall must be a duration >= 0")
 		}
 		out.plc.watchdogStall = d
+	}
+	return nil
+}
+
+// validateSRTPAddress requires host:port with a non-empty host, no whitespace,
+// and a TCP port in 1..65535.
+func validateSRTPAddress(addr string) error {
+	if strings.ContainsAny(addr, " \t\r\n") {
+		return fmt.Errorf("connection.srtp.address must not contain whitespace")
+	}
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("connection.srtp.address: %w", err)
+	}
+	if host == "" {
+		return fmt.Errorf("connection.srtp.address: host required")
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("connection.srtp.address: port must be 1..65535")
 	}
 	return nil
 }

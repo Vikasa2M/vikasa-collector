@@ -51,7 +51,7 @@ devices:
     device_kind: acs
     poll_interval: 1s
     connection:
-      srtp: { address: "<host>:18245" }
+      srtp: { address: "203.0.113.10:18245" }
       dsw: { start: 90, length: 110 }
       cabinet: { lf_fault: 179, sp_fault: 180, door: 181, gate_estop: 182 }
       plc: { cabinet_id: 1 }

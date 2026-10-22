@@ -224,7 +224,7 @@ func TestPLCNotScanningFailedReadNeitherClearsNorReraises(t *testing.T) {
 
 func TestParsePLCBlock(t *testing.T) {
 	ok, err := parseACSBlock(map[string]any{
-		"srtp":  map[string]any{"address": "<host>:18245"},
+		"srtp":  map[string]any{"address": "203.0.113.10:18245"},
 		"dsw":   map[string]any{"start": 90, "length": 110},
 		"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 		"plc": map[string]any{
@@ -241,7 +241,7 @@ func TestParsePLCBlock(t *testing.T) {
 		t.Fatalf("plc = %+v", ok.plc)
 	}
 	bare, err := parseACSBlock(map[string]any{
-		"srtp":  map[string]any{"address": "<host>:18245"},
+		"srtp":  map[string]any{"address": "203.0.113.10:18245"},
 		"dsw":   map[string]any{"start": 90, "length": 110},
 		"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 	})
@@ -252,19 +252,19 @@ func TestParsePLCBlock(t *testing.T) {
 		t.Fatalf("default plc = %+v", bare.plc)
 	}
 	for _, conn := range []map[string]any{
-		{"srtp": map[string]any{"address": "<host>:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
+		{"srtp": map[string]any{"address": "203.0.113.10:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
 			"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 			"plc":   map[string]any{"cabinet_id": 0}},
-		{"srtp": map[string]any{"address": "<host>:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
+		{"srtp": map[string]any{"address": "203.0.113.10:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
 			"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 			"plc":   map[string]any{"program_crc": 12}},
-		{"srtp": map[string]any{"address": "<host>:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
+		{"srtp": map[string]any{"address": "203.0.113.10:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
 			"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 			"plc":   map[string]any{"watchdog_stall": "-1s"}},
-		{"srtp": map[string]any{"address": "<host>:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
+		{"srtp": map[string]any{"address": "203.0.113.10:18245"}, "dsw": map[string]any{"start": 90, "length": 110},
 			"gates": []any{map[string]any{"id": "WG-1", "dsw": 101, "kind": "warning"}},
 			"plc":   map[string]any{"nope": true}},
-		{"srtp": map[string]any{"address": "<host>:18245"}, "dsw": map[string]any{"start": 200, "length": 10},
+		{"srtp": map[string]any{"address": "203.0.113.10:18245"}, "dsw": map[string]any{"start": 200, "length": 10},
 			"gates": []any{map[string]any{"id": "WG-1", "dsw": 200, "kind": "warning"}},
 			"plc":   map[string]any{"cabinet_id": 1}},
 	} {

@@ -133,7 +133,7 @@ devices:
     poll_interval: 1s
     connection:
       srtp:
-        address: "<host>:18245"
+        address: "203.0.113.10:18245"
         timeout: 5s
       dsw:
         start: 90

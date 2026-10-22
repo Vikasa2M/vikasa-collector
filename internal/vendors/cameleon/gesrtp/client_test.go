@@ -350,6 +350,21 @@ func handshakeThenSilent(t *testing.T) (addr string, closeFn func()) {
 	}
 }
 
+func TestReadMemoryRejectsUint16Wrap(t *testing.T) {
+	f := startFake(t, okReply([]uint16{1}))
+	c, err := Dial(context.Background(), f.addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.ReadMemory(context.Background(), MemR, 65535, 2); err == nil {
+		t.Fatal("address+count wrap must fail")
+	}
+	if _, err := c.ReadMemory(context.Background(), MemR, 65536, 1); err == nil {
+		t.Fatal("address past 16-bit range must fail")
+	}
+}
+
 func TestDialHandshakeRespectsContextAgainstSilentPeer(t *testing.T) {
 	addr, closeFn := silentListener(t)
 	defer closeFn()

@@ -88,6 +88,35 @@ func TestParseACSBlockRejectsUnrecognized(t *testing.T) {
 		{"gate id too long", func(c map[string]any) {
 			c["gates"].([]any)[0].(map[string]any)["id"] = strings.Repeat("A", 65)
 		}, "id"},
+		{"address with whitespace", func(c map[string]any) {
+			c["srtp"].(map[string]any)["address"] = "203.0.113.10 :18245"
+		}, "whitespace"},
+		{"address missing host", func(c map[string]any) {
+			c["srtp"].(map[string]any)["address"] = ":18245"
+		}, "host"},
+		{"address missing port", func(c map[string]any) {
+			c["srtp"].(map[string]any)["address"] = "203.0.113.10"
+		}, "address"},
+		{"address port zero", func(c map[string]any) {
+			c["srtp"].(map[string]any)["address"] = "203.0.113.10:0"
+		}, "port"},
+		{"address port too high", func(c map[string]any) {
+			c["srtp"].(map[string]any)["address"] = "203.0.113.10:65536"
+		}, "port"},
+		{"dsw.start zero", func(c map[string]any) {
+			c["dsw"].(map[string]any)["start"] = 0
+		}, "start"},
+		{"dsw.start too high", func(c map[string]any) {
+			c["dsw"].(map[string]any)["start"] = 65536
+		}, "start"},
+		{"dsw.length too high", func(c map[string]any) {
+			c["dsw"].(map[string]any)["length"] = 513
+		}, "length"},
+		{"dsw range wraps", func(c map[string]any) {
+			c["dsw"].(map[string]any)["start"] = 65500
+			c["dsw"].(map[string]any)["length"] = 100
+			c["gates"].([]any)[0].(map[string]any)["dsw"] = 65500
+		}, "start+length"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
