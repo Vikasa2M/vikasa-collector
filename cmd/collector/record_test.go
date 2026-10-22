@@ -211,3 +211,15 @@ func TestRecordFixtureUsage(t *testing.T) {
 		t.Fatalf("err = %v (exit %d); want a usage error naming the first missing flag", err, exitCode(err))
 	}
 }
+
+// A secret is a secret at any length: the short-value skip that keeps a
+// three-letter agency unit from matching binary data must not let a short
+// community through.
+func TestRecordingRefusesAShortCommunity(t *testing.T) {
+	addr := snmptest.ServeAgent(t, "k9x", dmsInts, dmsOctets("USE K9X"))
+	out := filepath.Join(t.TempDir(), "dms.json")
+	_, err := record(t, writeConfig(t, "dms", addr, "k9x"), out)
+	if err == nil || !strings.Contains(err.Error(), oidMULTI+" contains the community") {
+		t.Fatalf("err = %v; want the community in %s refused", err, oidMULTI)
+	}
+}

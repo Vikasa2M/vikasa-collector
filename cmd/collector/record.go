@@ -152,20 +152,22 @@ func versionName(v string) (string, error) {
 }
 
 // identifying is what the recording must not carry: the device's address,
-// a non-default community, and the deployment's own names. Short values are
-// skipped — three bytes match binary data by chance.
+// a non-default community, and the deployment's own names. Names shorter
+// than four bytes are skipped — three bytes match binary data by chance —
+// but the address and community are checked at any length: they are
+// secrets, and a false refusal costs one -redact.
 func identifying(cfg *config.Config, dev config.Device, dialed snmp.DialConfig) map[string]string {
 	out := map[string]string{
 		"site": cfg.Site, "agency": cfg.Agency, "agency_unit": cfg.AgencyUnit,
 		"collector_id": cfg.CollectorID, "device id": dev.ID,
 	}
-	if host, _, err := net.SplitHostPort(dialed.Address); err == nil {
+	maps.DeleteFunc(out, func(_, v string) bool { return len(v) < 4 })
+	if host, _, err := net.SplitHostPort(dialed.Address); err == nil && host != "" {
 		out["device address"] = host
 	}
-	if dialed.Community != "public" {
+	if dialed.Community != "" && dialed.Community != "public" {
 		out["community"] = dialed.Community
 	}
-	maps.DeleteFunc(out, func(_, v string) bool { return len(v) < 4 })
 	return out
 }
 
