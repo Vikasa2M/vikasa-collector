@@ -112,6 +112,11 @@ var ceTypeFor = map[key]string{
 	{"fault-raised", "perception"}:      "openits.perception.fault-raised.v1",
 	{"fault-cleared", "perception"}:     "openits.perception.fault-cleared.v1",
 
+	{"fault-raised", "acs"}:  "openits.reversible-lane.fault-raised.v1",
+	{"fault-cleared", "acs"}: "openits.reversible-lane.fault-cleared.v1",
+
+	{"gate-status-changed", "acs"}: "openits.reversible-lane.gate-status-changed.v1",
+
 	{"traffic-interval-report", "traffic-sensor"}: "openits.traffic-sensor.traffic-interval-report.v1",
 
 	{"zone-incident-detected", "perception"}: "openits.perception.zone-incident-detected.v1",
@@ -199,6 +204,7 @@ func (e *emitter) payload(ev model.Event) (proto.Message, bool) {
 	for _, family := range []func(model.Event) (proto.Message, bool){
 		e.encodeSignalControl, e.encodeDMS, e.encodeShared, e.encodeCCTV,
 		e.encodePerception, e.encodeZoneOccupancy, e.encodeTrafficSensor,
+		e.encodeReversibleLane,
 	} {
 		if msg, ok := family(ev); ok {
 			return msg, true

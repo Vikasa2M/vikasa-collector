@@ -42,11 +42,11 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 		}
 
 	case model.FaultRaised:
-		// Unlike modes, an unmappable category does NOT decline the event —
-		// faultKindIdentity falls back to the service base identity. It only
-		// fails for a device kind this emitter does not serve, which the
-		// ce-type lookup above has already excluded.
-		kind, ok := faultKindIdentity(v.Category, v.DeviceKind)
+		// For most services an unmappable category falls back to the service
+		// base identity. ACS is the exception: the catalog rejects the base
+		// kind, so faultKindIdentity returns ok=false and Encode declines
+		// (loud-drop) rather than approximating a near-neighbour leaf.
+		kind, ok := faultKindIdentity(v.Category, v.DeviceKind, v.Type)
 		if !ok {
 			return nil, false
 		}
@@ -61,18 +61,19 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Severity:       severityFor(v.Severity),
 			Description:    optString(v.Description),
 			FirstObserved:  optTime(v.FirstObserved),
+			Component:      gateComponent(v.GateID),
 		}
 
 	case model.FaultCleared:
-		kind, ok := faultKindIdentity(v.Category, v.DeviceKind)
+		kind, ok := faultKindIdentity(v.Category, v.DeviceKind, v.Type)
 		if !ok {
 			return nil, false
 		}
 		msg = &commonv1.FaultCleared{
 			// The clear names the same fault class as its raise: the differ
-			// carries the cleared fault's category from the remembered state
-			// (openits-models v0.8.0 conformance requires a service fault
-			// kind on both halves, not the base event kind).
+			// carries the cleared fault's category and type from the remembered
+			// state (openits-models v0.8.0 conformance requires a service
+			// fault kind on both halves, not the base event kind).
 			Kind:           kind,
 			SourceDeviceId: v.DeviceID,
 			OccurredAt:     timestamppb.New(v.OccurredAt.UTC()),
@@ -81,6 +82,7 @@ func (e *emitter) encodeShared(ev model.Event) (proto.Message, bool) {
 			Sequence:       e.nextSequence(v.DeviceID),
 			FaultId:        v.FaultID,
 			FirstObserved:  optTime(v.FirstObserved),
+			Component:      gateComponent(v.GateID),
 		}
 	default:
 		return nil, false
