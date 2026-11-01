@@ -25,6 +25,12 @@ const (
 	perceptionTypes = "openits-perception-types:"
 	rlTypes         = "openits-reversible-lane-types:"
 
+	// cameleonRLTypes is the Cameleon vendor identity module. Its
+	// identities derive from open reversible-lane classes, so a consumer
+	// that does not load it still sees the core base (for example
+	// reversible-lane-fault-gate).
+	cameleonRLTypes = "openits-vendor-cameleon-reversible-lane-types:"
+
 	// openits-types is the foundation layer. object-class and its object-*
 	// leaves lived in openits-perception-types until the v0.3.0 hoist
 	// (openits-perception-types revision 2026-08-15: "Hoist the object-class
@@ -194,12 +200,19 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			return dmsTypes + "dms-fault-event-kind", true
 		}
 	case "acs":
-		// ACS faults map only onto declared reversible-lane leaf identities.
-		// The v0.8.0 conformance rule rejects the service base kind
+		// ACS faults map only onto declared reversible-lane leaf identities,
+		// or onto Cameleon vendor identities derived from them. The v0.8.0
+		// conformance rule rejects the service base kind
 		// (reversible-lane-fault-event-kind), so unmapped types decline rather
-		// than fall back. Pending models PR adds plc-fault, plc-configuration,
-		// cabinet-door, and gate-invalid-inputs leaves; until then those types
-		// take the loud-drop path. Clears carry Category and Type (ADR 0024).
+		// than fall back. Requires an openits-models release containing the
+		// controller, controller-configuration and cabinet-door-open leaves
+		// and the openits-vendor-cameleon-reversible-lane-types module (CI
+		// cannot pass until the pin is bumped). Declined deliberately:
+		// cabinet gate-estop, because each gate's own emergency-stop leaf
+		// already covers per-gate e-stop; and cabinet-id-changed, because a
+		// cabinet-ID input changing state is an event, not a mismatch with
+		// what the site expects (cabinet-id-mismatch reports that). Clears
+		// carry Category and Type (ADR 0024).
 		if c == model.CategoryUnknown {
 			return "", false
 		}
@@ -210,13 +223,26 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
 		case model.FaultTypeGateEmergencyStop:
 			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
-		case model.FaultTypePLCNotScanning:
-			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypeGateInvalidInputs:
+			// The alarm's inputs are set per project, so it is a vendor
+			// identity derived from reversible-lane-fault-gate, not a core leaf.
+			return cameleonRLTypes + "cameleon-gate-invalid-inputs", true
 		case model.FaultTypeGateCommandRefused:
 			return rlTypes + "reversible-lane-fault-interlock", true
+		case model.FaultTypePLCNotScanning:
+			return rlTypes + "reversible-lane-fault-plc-communication", true
+		case model.FaultTypePLCFault:
+			return rlTypes + "reversible-lane-fault-controller", true
+		case model.FaultTypePLCCabinetIDMismatch,
+			model.FaultTypePLCProgramCRCMismatch, model.FaultTypePLCConfigCRCMismatch:
+			return rlTypes + "reversible-lane-fault-controller-configuration", true
 		case model.FaultTypeCabinetLineFilter, model.FaultTypeCabinetSurgeProtector:
 			return rlTypes + "reversible-lane-fault-power", true
+		case model.FaultTypeCabinetDoor:
+			return rlTypes + "reversible-lane-fault-cabinet-door-open", true
 		default:
+			// FaultTypeCabinetGateEstop, FaultTypePLCCabinetIDChanged and any
+			// future unclassified type.
 			return "", false
 		}
 	default:

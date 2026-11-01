@@ -847,10 +847,16 @@ func TestFaultKindIdentity_ACSMapsByFaultType(t *testing.T) {
 		model.FaultTypeGateFailedToClose:     "openits-reversible-lane-types:reversible-lane-fault-gate-failed-to-close",
 		model.FaultTypeGateFailedToOpen:      "openits-reversible-lane-types:reversible-lane-fault-gate-failed-to-open",
 		model.FaultTypeGateEmergencyStop:     "openits-reversible-lane-types:reversible-lane-fault-gate-emergency-stop",
+		model.FaultTypeGateInvalidInputs:     "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-invalid-inputs",
 		model.FaultTypeGateCommandRefused:    "openits-reversible-lane-types:reversible-lane-fault-interlock",
 		model.FaultTypePLCNotScanning:        "openits-reversible-lane-types:reversible-lane-fault-plc-communication",
+		model.FaultTypePLCFault:              "openits-reversible-lane-types:reversible-lane-fault-controller",
+		model.FaultTypePLCCabinetIDMismatch:  "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
+		model.FaultTypePLCProgramCRCMismatch: "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
+		model.FaultTypePLCConfigCRCMismatch:  "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
 		model.FaultTypeCabinetLineFilter:     "openits-reversible-lane-types:reversible-lane-fault-power",
 		model.FaultTypeCabinetSurgeProtector: "openits-reversible-lane-types:reversible-lane-fault-power",
+		model.FaultTypeCabinetDoor:           "openits-reversible-lane-types:reversible-lane-fault-cabinet-door-open",
 	}
 	for ft, want := range mapped {
 		got, ok := faultKindIdentity(model.CategoryCabinet, "acs", ft)
@@ -858,13 +864,9 @@ func TestFaultKindIdentity_ACSMapsByFaultType(t *testing.T) {
 			t.Errorf("%s: got (%q, %v), want %q", ft, got, ok, want)
 		}
 	}
-	for _, ft := range []model.FaultType{
-		model.FaultTypeGateInvalidInputs, model.FaultTypeCabinetDoor, model.FaultTypeCabinetGateEstop,
-		model.FaultTypePLCFault, model.FaultTypePLCCabinetIDChanged, model.FaultTypePLCCabinetIDMismatch,
-		model.FaultTypePLCProgramCRCMismatch, model.FaultTypePLCConfigCRCMismatch, model.FaultTypeUnknown,
-	} {
+	for _, ft := range []model.FaultType{model.FaultTypeCabinetGateEstop, model.FaultTypePLCCabinetIDChanged, model.FaultTypeUnknown} {
 		if got, ok := faultKindIdentity(model.CategoryCabinet, "acs", ft); ok {
-			t.Errorf("%s: mapped to %q; want declined (no leaf yet)", ft, got)
+			t.Errorf("%s: mapped to %q; want declined", ft, got)
 		}
 	}
 	if got, ok := faultKindIdentity(model.CategoryUnknown, "acs", model.FaultTypeGateFailedToClose); ok {
@@ -924,22 +926,41 @@ func TestEncode_GateFaultNamesComponent(t *testing.T) {
 		t.Errorf("command-refused component = %+v", comp)
 	}
 
-	for _, tc := range []struct {
-		id string
-		ft model.FaultType
-	}{
-		{"gate/WG-1/invalid-inputs", model.FaultTypeGateInvalidInputs},
-		{"cabinet/door", model.FaultTypeCabinetDoor},
-		{"cabinet/gate-estop", model.FaultTypeCabinetGateEstop},
-		{"plc/fault", model.FaultTypePLCFault},
-	} {
-		enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.FaultRaised{
-			Base: base("acs-1", "acs"), FaultID: tc.id,
-			Severity: model.SeverityMajor, Category: model.CategoryCabinet, Type: tc.ft,
-		})
-		if err != nil || ok || enc != nil {
-			t.Errorf("%s: ok=%v err=%v enc=%v; want declined", tc.id, ok, err, enc != nil)
-		}
+	invalid, ceType := decodeFaultRaised(t, model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "gate/WG-1/invalid-inputs",
+		Severity: model.SeverityMajor, Category: model.CategoryCabinet,
+		Type: model.FaultTypeGateInvalidInputs, GateID: "WG-1",
+	})
+	if ceType != "openits.reversible-lane.fault-raised.v1" {
+		t.Errorf("invalid-inputs ce-type = %q", ceType)
+	}
+	if invalid.GetKind() != "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-invalid-inputs" {
+		t.Errorf("invalid-inputs kind = %q", invalid.GetKind())
+	}
+	comp = invalid.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-1" {
+		t.Errorf("invalid-inputs component = %+v", comp)
+	}
+
+	door, _ := decodeFaultRaised(t, model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "cabinet/door",
+		Severity: model.SeverityWarning, Category: model.CategoryCabinet,
+		Type: model.FaultTypeCabinetDoor,
+	})
+	if door.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-cabinet-door-open" {
+		t.Errorf("cabinet/door kind = %q", door.GetKind())
+	}
+	if door.GetComponent() != nil {
+		t.Errorf("cabinet/door component = %+v, want nil", door.GetComponent())
+	}
+
+	enc, ok, err = New("cabinet-poller-1", testEpoch).Encode(model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "cabinet/gate-estop",
+		Severity: model.SeverityCritical, Category: model.CategoryCabinet,
+		Type: model.FaultTypeCabinetGateEstop,
+	})
+	if err != nil || ok || enc != nil {
+		t.Errorf("cabinet/gate-estop: ok=%v err=%v; want declined", ok, err)
 	}
 }
 
@@ -971,8 +992,14 @@ func TestACSFaultRaiseAndClearShareKind(t *testing.T) {
 		{"gate/WG-1/failed-to-open", model.FaultTypeGateFailedToOpen, "WG-1"},
 		{"gate/WG-1/estop", model.FaultTypeGateEmergencyStop, "WG-1"},
 		{"gate/WG-1/command-refused", model.FaultTypeGateCommandRefused, "WG-1"},
+		{"gate/WG-1/invalid-inputs", model.FaultTypeGateInvalidInputs, "WG-1"},
 		{"cabinet/lf-fault", model.FaultTypeCabinetLineFilter, ""},
 		{"cabinet/sp-fault", model.FaultTypeCabinetSurgeProtector, ""},
+		{"cabinet/door", model.FaultTypeCabinetDoor, ""},
+		{"plc/fault", model.FaultTypePLCFault, ""},
+		{"plc/cabinet-id-mismatch", model.FaultTypePLCCabinetIDMismatch, ""},
+		{"plc/program-crc-mismatch", model.FaultTypePLCProgramCRCMismatch, ""},
+		{"plc/config-crc-mismatch", model.FaultTypePLCConfigCRCMismatch, ""},
 		{"plc/not-scanning", model.FaultTypePLCNotScanning, ""},
 	}
 	for _, tc := range mapped {
@@ -1011,14 +1038,8 @@ func TestACSFaultRaiseAndClearShareKind(t *testing.T) {
 		id string
 		ft model.FaultType
 	}{
-		{"gate/WG-1/invalid-inputs", model.FaultTypeGateInvalidInputs},
-		{"cabinet/door", model.FaultTypeCabinetDoor},
 		{"cabinet/gate-estop", model.FaultTypeCabinetGateEstop},
-		{"plc/fault", model.FaultTypePLCFault},
 		{"plc/cabinet-id-changed", model.FaultTypePLCCabinetIDChanged},
-		{"plc/cabinet-id-mismatch", model.FaultTypePLCCabinetIDMismatch},
-		{"plc/program-crc-mismatch", model.FaultTypePLCProgramCRCMismatch},
-		{"plc/config-crc-mismatch", model.FaultTypePLCConfigCRCMismatch},
 	}
 	for _, tc := range declined {
 		for _, ev := range []model.Event{

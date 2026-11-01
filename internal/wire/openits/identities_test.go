@@ -24,7 +24,7 @@ func TestEveryEmittedIdentityIsDeclaredUpstream(t *testing.T) {
 	prefixes := map[string]string{
 		"scTypes": scTypes, "dmsTypes": dmsTypes, "cctvTypes": cctvTypes,
 		"trafficSenTypes": trafficSenTypes, "perceptionTypes": perceptionTypes,
-		"rlTypes":      rlTypes,
+		"rlTypes": rlTypes, "cameleonRLTypes": cameleonRLTypes,
 		"openitsTypes": openitsTypes, "zoneOccTypes": zoneOccTypes, "commHealth": commHealth,
 	}
 	literal := regexp.MustCompile(`\b(\w+)\s*\+\s*"([a-z0-9-]+)"`)
