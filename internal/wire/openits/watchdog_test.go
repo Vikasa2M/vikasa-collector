@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/common/v1"
 
@@ -27,20 +28,22 @@ const (
 // leaf. A failed read is not that observation.
 func TestWatchdogStallEncodesControllerKind(t *testing.T) {
 	start := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	plc := cameleon.NewScriptedPLC(31, 5*time.Second, start)
+	firstStall := start.Add(5 * time.Second)
+	secondStall := start.Add(13 * time.Second)
+	plc := cameleon.NewScriptedPLC(29, 5*time.Second, start)
 	engine := synth.NewEngine(synth.NewFaultDiffer())
 	em := New("cabinet-poller-1", testEpoch)
 
 	if evs := applyRead(t, engine, plc); len(evs) != 0 {
-		t.Fatalf("initial sample events = %v; a first sample must not raise a stall", evs)
+		t.Fatalf("initial sample at counter 29 events = %v; a first sample must not raise a stall", evs)
 	}
 	plc.SetClock(start.Add(4 * time.Second))
 	if evs := applyRead(t, engine, plc); len(evs) != 0 {
-		t.Fatalf("events before the stall window = %v", evs)
+		t.Fatalf("counter 29 before the stall window events = %v", evs)
 	}
 
-	plc.SetClock(start.Add(5 * time.Second))
-	raisedEv := oneFault(t, applyRead(t, engine, plc), "stall at the configured threshold")
+	plc.SetClock(firstStall)
+	raisedEv := oneFault(t, applyRead(t, engine, plc), "counter 29 stalled at the configured threshold")
 	raisedDomain, ok := raisedEv.(model.FaultRaised)
 	if !ok {
 		t.Fatalf("stall event %T, want FaultRaised", raisedEv)
@@ -52,63 +55,70 @@ func TestWatchdogStallEncodesControllerKind(t *testing.T) {
 	}
 	raised := decodeWatchdogRaised(t, em, raisedEv)
 	assertControllerFault(t, raised.GetKind(), raised.GetFaultId(), raised.GetDescription(), raised.GetComponent() != nil, raised.GetSeverity())
+	requireFirstObserved(t, raised.GetFirstObserved(), firstStall, "first raise")
 
 	plc.FailReads(context.DeadlineExceeded)
 	_, err := plc.Read(context.Background())
 	if err == nil {
 		t.Fatal("failed read returned no error")
 	}
-	// The runner publishes this as reachability, not as a reversible-lane
-	// fault. ACS has no catalog comm-health channel, so the emitter declines
-	// it instead of calling it a controller fault.
+	// This test manually supplies a reachability event to the catalog emitter.
+	// It verifies that the emitter declines it. It does not execute or prove
+	// runner or health publication.
 	enc, ok, encErr := em.Encode(model.DeviceStatusChanged{
-		Base:                model.Base{DeviceID: "acs-1", DeviceKind: "acs", OccurredAt: start.Add(5 * time.Second)},
+		Base:                model.Base{DeviceID: "acs-1", DeviceKind: "acs", OccurredAt: firstStall},
 		Reachable:           false,
 		Reason:              err.Error(),
 		ConsecutiveFailures: 1,
 		LastContact:         start,
 	})
 	if encErr != nil || ok || enc != nil {
-		t.Fatalf("read error encoded as a catalog event: ok=%v err=%v", ok, encErr)
+		t.Fatalf("catalog emitter accepted the supplied reachability event: ok=%v err=%v", ok, encErr)
 	}
 
 	plc.Resume()
 	plc.SetClock(start.Add(6 * time.Second))
 	if evs := applyRead(t, engine, plc); len(evs) != 0 {
-		t.Fatalf("unchanged counter after the failed read = %v; must not clear or re-raise", evs)
+		t.Fatalf("unchanged counter 29 after the failed read = %v; must not clear or re-raise", evs)
 	}
 
 	plc.SetCounter(30)
 	plc.SetClock(start.Add(7 * time.Second))
-	clearedEv := oneFault(t, applyRead(t, engine, plc), "advancing counter")
+	clearedEv := oneFault(t, applyRead(t, engine, plc), "counter 29 -> 30")
 	if _, ok := clearedEv.(model.FaultCleared); !ok {
-		t.Fatalf("advance event %T, want FaultCleared", clearedEv)
+		t.Fatalf("counter 29 -> 30 event %T, want FaultCleared", clearedEv)
 	}
 	cleared := decodeWatchdogCleared(t, em, clearedEv)
 	if cleared.GetKind() != watchdogControllerKind || cleared.GetFaultId() != watchdogFaultID || cleared.GetComponent() != nil {
 		t.Fatalf("clear kind=%q id=%q component=%v", cleared.GetKind(), cleared.GetFaultId(), cleared.GetComponent())
 	}
+	requireFirstObserved(t, cleared.GetFirstObserved(), firstStall, "clear after 29 -> 30")
 
 	plc.SetCounter(31)
 	plc.SetClock(start.Add(8 * time.Second))
 	if evs := applyRead(t, engine, plc); len(evs) != 0 {
 		t.Fatalf("counter change 30 -> 31 events = %v", evs)
 	}
-	plc.SetClock(start.Add(13 * time.Second))
-	raisedEv = oneFault(t, applyRead(t, engine, plc), "second stall")
+	plc.SetClock(secondStall)
+	raisedEv = oneFault(t, applyRead(t, engine, plc), "second stall at counter 31")
 	raised = decodeWatchdogRaised(t, em, raisedEv)
 	assertControllerFault(t, raised.GetKind(), raised.GetFaultId(), raised.GetDescription(), raised.GetComponent() != nil, raised.GetSeverity())
+	requireFirstObserved(t, raised.GetFirstObserved(), secondStall, "second raise")
+	if raised.GetFirstObserved().AsTime().Equal(firstStall) {
+		t.Fatal("second stall reused the first observation time")
+	}
 
 	plc.SetCounter(0)
 	plc.SetClock(start.Add(14 * time.Second))
 	clearedEv = oneFault(t, applyRead(t, engine, plc), "counter wrap 31 -> 0")
 	if _, ok := clearedEv.(model.FaultCleared); !ok {
-		t.Fatalf("wrap event %T, want FaultCleared; wrap must count as progress", clearedEv)
+		t.Fatalf("wrap event %T, want FaultCleared; wrap 31 -> 0 must count as progress", clearedEv)
 	}
 	cleared = decodeWatchdogCleared(t, em, clearedEv)
 	if cleared.GetKind() != watchdogControllerKind || cleared.GetFaultId() != watchdogFaultID || cleared.GetComponent() != nil {
 		t.Fatalf("wrap clear kind=%q id=%q component=%v", cleared.GetKind(), cleared.GetFaultId(), cleared.GetComponent())
 	}
+	requireFirstObserved(t, cleared.GetFirstObserved(), secondStall, "clear after wrap 31 -> 0")
 }
 
 func applyRead(t *testing.T, engine *synth.Engine, plc *cameleon.ScriptedPLC) []model.Event {
@@ -158,6 +168,16 @@ func decodeWatchdogCleared(t *testing.T, em wire.Emitter, ev model.Event) *commo
 		t.Fatal(err)
 	}
 	return &got
+}
+
+func requireFirstObserved(t *testing.T, got *timestamppb.Timestamp, want time.Time, what string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s: first_observed is absent", what)
+	}
+	if !got.AsTime().Equal(want) {
+		t.Fatalf("%s: first_observed = %v, want %v", what, got.AsTime(), want)
+	}
 }
 
 func assertControllerFault(t *testing.T, kind, id, description string, hasComponent bool, severity commonv1.FaultSeverity) {

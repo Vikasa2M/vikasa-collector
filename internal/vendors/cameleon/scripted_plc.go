@@ -10,6 +10,9 @@ import (
 // ScriptedPLC is an in-memory ACS reader for tests. It uses the same
 // watchdog window as a configured adapter. The test moves the clock and
 // the counter; nothing is dialed.
+//
+// The type is in a non-_test.go file so tests in another package can import
+// it. A helper in a _test.go file is visible only inside package cameleon.
 type ScriptedPLC struct {
 	a      *acs
 	words  []uint16
