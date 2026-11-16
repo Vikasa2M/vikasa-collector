@@ -201,13 +201,10 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 		}
 	case "acs":
 		// ACS faults map only onto declared reversible-lane leaf identities,
-		// or onto Cameleon vendor identities derived from them. The v0.8.0
-		// conformance rule rejects the service base kind
-		// (reversible-lane-fault-event-kind), so unmapped types decline rather
-		// than fall back. Requires an openits-models release containing the
-		// controller, controller-configuration and cabinet-door-open leaves
-		// and the openits-vendor-cameleon-reversible-lane-types module (CI
-		// cannot pass until the pin is bumped). Declined deliberately:
+		// or onto Cameleon vendor identities derived from them. The pinned
+		// openits-models v0.9.0 conformance rule rejects the service base
+		// kind (reversible-lane-fault-event-kind), so unmapped types decline
+		// rather than fall back. Declined deliberately:
 		// cabinet gate-estop, because each gate's own emergency-stop leaf
 		// already covers per-gate e-stop; and cabinet-id-changed, because a
 		// cabinet-ID input changing state is an event, not a mismatch with

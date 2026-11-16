@@ -112,7 +112,7 @@ start jitter.
 | `devices.vendor` | string | Yes | — | With `device_kind`, must name a registered adapter: registry key `"<vendor>-<device_kind>"`. This build registers `ntcip-asc`, `ntcip-dms`, and `cameleon-acs`. |
 | `devices.device_kind` | string | Yes | — | Validated together with `vendor`, above. |
 | `devices.poll_interval` | duration | No | `5s` | Must not be negative. Zero (or omitted) means `5s`, not "as fast as possible". |
-| `devices.connection` | map | Yes (shape is adapter-defined) | — | Opaque to the core: the selected adapter parses and validates it when it is built. Adapters reject unknown keys and wrong-typed values. For `ntcip` it is one `snmp:` block with `address` (required, `host:port`), `community` (default `public`) and `version` (`v1`/`1` or `v2c`/`2c`; default `v2c`) — all strings, so quote a numeric value: `community: "1234"`. For `cameleon` / `acs`, the block is `srtp.address` (required `host:port` via `net.SplitHostPort`, non-empty host, no whitespace, port 1..65535; the example uses `203.0.113.10:18245`), optional `srtp.timeout`, `dsw.start` (1..65535) and `dsw.length` (1..512, with `start+length-1` ≤ 65535), `gates` (each `id`, `dsw` inside that block, and `kind` of `warning`, `barrier`, `gate`, or `unknown`; `gate` and `unknown` both mean kind unknown), an optional `cabinet` with `lf_fault`, `sp_fault`, `door`, and `gate_estop` (only bit 0 of each word), and an optional `plc` block: `cabinet_id` (1..63), `program_crc` and `config_crc` (32-bit hex strings), and `watchdog_stall` (duration, default `5s`, `0s` disables `plc/not-scanning`). The stall window is compared on the monotonic clock; `ce-time` and `occurred_at` stay UTC. `plc/not-scanning` is a controller condition, not a communication fault. `%R90`–`%R94` must sit inside `dsw` when `plc` is set. `dsw` is the operator's contiguous span: a word inside that span is read, including a username word when the span covers it. A real deployment lists every gate and cabinet word of that cabinet in its own config file, taking each device's word address from the PLC's device list; the shipped `collector.yaml` example shows two gates only. |
+| `devices.connection` | map | Yes (shape is adapter-defined) | — | Opaque to the core: the selected adapter parses and validates it when it is built. Adapters reject unknown keys and wrong-typed values. For `ntcip` it is one `snmp:` block with `address` (required, `host:port`), `community` (default `public`) and `version` (`v1`/`1` or `v2c`/`2c`; default `v2c`) — all strings, so quote a numeric value: `community: "1234"`. For `cameleon` / `acs`, the block is `srtp.address` (required `host:port` via `net.SplitHostPort`, non-empty host, no whitespace, port 1..65535; the example uses `203.0.113.10:18245`), optional `srtp.timeout`, `dsw.start` (1..65535) and `dsw.length` (1..512, with `start+length-1` ≤ 65535), `gates` (each `id`, `dsw` inside that block, and `kind` of `warning`, `barrier`, `gate`, or `unknown`; `gate` and `unknown` both mean kind unknown), an optional `cabinet` with `lf_fault`, `sp_fault`, `door`, and `gate_estop` (only bit 0 of each word), and an optional `plc` block: `cabinet_id` (1..63), `program_crc` and `config_crc` (32-bit hex strings), and `watchdog_stall` (duration). The parser defaults `watchdog_stall` to `5s` whether or not the `plc` block is present; `0s` disables the stall inference and leaves the other PLC status bits in place. The stall window is compared on the monotonic clock; `ce-time` and `occurred_at` stay UTC. `plc/not-scanning` is a controller condition, not a communication fault. PLC status is processed when the span covers all of `%R90`–`%R94`; omitting `plc` does not disable that. A `plc` block requires those words inside `dsw`. A restored stall stays until the counter changes. The first sample after a restart does not clear it. `dsw` is the operator's contiguous span: a word inside that span is read, including a username word when the span covers it. A real deployment lists every gate and cabinet word of that cabinet in its own config file, taking each device's word address from the PLC's device list; the shipped `collector.yaml` example shows two gates only. |
 
 ## Notes on non-obvious fields
 
@@ -174,6 +174,22 @@ objects as gates. `kind: gate` and `kind: unknown` are both kind unknown;
 a layout does not have to guess warning or barrier. A program export that
 agrees with a layout is not fleet-wide hardware validation, and these
 synthetic layouts do not validate packed status bits on every PLC program.
+
+PLC status processing follows the span. It runs when `%R90`–`%R94` all sit
+inside `dsw`. Omitting `connection.plc` does not disable it. The config
+parser defaults `watchdog_stall` to `5s`. `watchdog_stall: 0s` disables
+only the stall inference; the other status bits are still decoded.
+`cabinet_id`, `program_crc`, and `config_crc` are compared only when those
+keys are present. A gate-only span that starts at `%R101` does not include
+`%R90`–`%R94`.
+
+A `plc/not-scanning` fault restored from the previous process stays until
+this process sees the watchdog counter change. The first sample after a
+restart is not evidence that the controller resumed scanning. Setting
+`watchdog_stall` to `0s` stops the inference; that is a configuration
+change, not an observed recovery. Gate readings and other faults in the
+same poll are still published. The stall window itself is not stored
+across restarts, and it is not measured from `ce-time` or `occurred_at`.
 
 ### `devices.vendor` / `devices.device_kind`
 

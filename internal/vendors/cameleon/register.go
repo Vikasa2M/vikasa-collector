@@ -28,14 +28,22 @@ import (
 //	    cabinet_id: 1                                  # fault if %R90 bits 1–6 differ
 //	    program_crc: "0x00000000"                      # fault while live %R91/%R92 differ
 //	    config_crc: "0x00000000"                       # fault while live %R93/%R94 differ
-//	    watchdog_stall: "5s"                           # default 5s; 0 disables plc/not-scanning
+//	    watchdog_stall: "5s"                           # default 5s; 0s disables the stall inference only
 //
 // The read is the configured dsw span, not a fixed gate count or a fixed
-// start. %R90–%R94 are decoded as PLC status only when plc is set and those
-// words sit inside the span. Only bit 0 of each cabinet word is the input.
-// A word inside the span is read even when no gate names it, including a
-// username word on a program that places one there. Lane, TSC, and sign
-// symbols are not gates. DCW addresses are never written.
+// start. PLC status (%R90–%R94) is processed when that whole block sits
+// inside the span. Omitting connection.plc does not turn that off. The
+// parser's watchdog_stall default is 5s; 0s disables only the stall
+// inference, not the other status bits. cabinet_id, program_crc and
+// config_crc are compared only when those keys are set. A gate-only span
+// that starts at %R101 does not include %R90–%R94.
+//
+// A stall restored from the previous process stays until this process sees
+// the counter change, or until watchdog_stall is 0. The first sample after
+// a restart is not evidence the controller resumed scanning. Only bit 0 of
+// each cabinet word is the input. A word inside the span is read even when
+// no gate names it, including a username word on a program that places one
+// there. Lane, TSC, and sign symbols are not gates. DCW addresses are never written.
 func RegisterTo(r *adapter.Registry) {
 	r.Register(acsDescriptor, func(deviceID string, conn map[string]any) (adapter.Adapter, error) {
 		cfg, err := parseACSBlock(conn)

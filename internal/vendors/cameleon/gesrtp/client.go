@@ -142,6 +142,10 @@ func (c *Client) init(ctx context.Context) error {
 		}
 		return fmt.Errorf("init write: %w", err)
 	}
+	// One Read, not a framed body. A handshake split across TCP segments can
+	// leave the remainder in the stream; the next framed read then fails its
+	// sequence check and the caller drops the client. This is a known
+	// robustness limit. It is not reassembled here.
 	resp := make([]byte, 1024)
 	n, err := c.conn.Read(resp)
 	if err != nil {

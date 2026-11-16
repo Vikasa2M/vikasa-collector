@@ -1,8 +1,10 @@
 package cameleon
 
-// Fixture: recorded GE SRTP %R90..%R199 (110 words) from a VersaMax-style
-// ACS PLC, captured 2026-09-11. Raw register values only — no addresses or
-// site names. Gate decode of %R101=0x0025 / %R104=0x0021 is auto+closed
+// Fixture: recorded GE SRTP %R90..%R199 (110 words), captured 2026-09-11.
+// The capture note calls the PLC VersaMax-style. No site address is stored.
+// Firmware revision and the exact CPU catalog number were not recorded.
+// This image is not the 2026-11-16 ACS3 six-poll run, and its bytes are the
+// original capture. Gate decode of %R101=0x0025 / %R104=0x0021 is auto+closed
 // (lock-open set on 0x0025) per the Cameleon DSW bit layout.
 var acs1DSWR90 = []uint16{
 	0x2E02, 0x0500, 0x9DCF, 0xAF64, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, // 90-99

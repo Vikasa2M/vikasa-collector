@@ -27,8 +27,11 @@ import (
 
 const recordEnv = "CAMELEON_RECORD"
 
-// acsRecording is a read-only GE SRTP poll of a lab ACS PLC, captured
-// 2026-10-20 (first commit of this file). No addresses or site names.
+// acsRecording is a read-only GE SRTP poll captured 2026-10-20, the date
+// recorded with testdata/acs-srtp.hex. No addresses or site names. Make,
+// model, and firmware were not recorded with that capture. It is a
+// different session from the 2026-09-11 word image in fixture_acs1.go and
+// from the 2026-11-16 ACS3 six-poll run.
 const acsRecording = "testdata/acs-srtp.hex"
 
 func labGates() []gateCfg {

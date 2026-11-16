@@ -41,7 +41,8 @@ then closed. None of those is the run above.
 Live gate-event delivery was not exercised. Durable gate-event delivery
 was verified separately using synthetic device input.
 
-The watchdog was not observed. `plc/not-scanning` is a controller
+The watchdog was not observed, and restart behavior for a standing
+watchdog fault was not part of this run. `plc/not-scanning` is a controller
 condition, timed on the monotonic clock, and it is not a communication
 fault. `ce-time` and `occurred_at` are UTC. Those are different clocks.
 See [`configuration.md`](../reference/configuration.md).

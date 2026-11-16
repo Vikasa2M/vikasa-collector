@@ -126,8 +126,9 @@ devices:
   # cameleon-acs polls reversible-lane gates over GE SRTP (TCP 18245).
   # dsw is this device's contiguous %R span. Only listed gates are decoded;
   # the two gates below are an example, not a cabinet inventory. cabinet
-  # words use only bit 0. plc.cabinet_id is compared with %R90 bits 1-6
-  # when the plc block is set and that word is inside dsw.
+  # words use only bit 0. PLC status is read when dsw covers %R90-%R94;
+  # omitting plc does not disable that, and watchdog_stall defaults to 5s.
+  # plc.cabinet_id is compared with %R90 bits 1-6 only when that key is set.
   - id: acs-1
     vendor: cameleon
     device_kind: acs
