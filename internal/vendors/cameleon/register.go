@@ -327,7 +327,7 @@ func parseGateKind(s string) (model.GateKind, error) {
 	case "":
 		return 0, fmt.Errorf("required")
 	default:
-		return 0, fmt.Errorf("%q: want warning|barrier|gate", s)
+		return 0, fmt.Errorf("%q: want warning|barrier|gate|unknown", s)
 	}
 }
 
