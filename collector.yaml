@@ -123,10 +123,11 @@ devices:
       snmp:
         address: 10.0.0.12:161 # host:port, required
         community: public # optional; defaults to "public"
-  # cameleon-acs polls a reversible-lane cabinet over GE SRTP (TCP 18245).
-  # dsw is the %R block read each poll. Each gate's dsw word must fall inside
-  # that block. %R100 is the first device word and is not a gate. cabinet
-  # words use only bit 0. plc.cabinet_id is compared with %R90 bits 1-6.
+  # cameleon-acs polls reversible-lane gates over GE SRTP (TCP 18245).
+  # dsw is this device's contiguous %R span. Only listed gates are decoded;
+  # the two gates below are an example, not a cabinet inventory. cabinet
+  # words use only bit 0. plc.cabinet_id is compared with %R90 bits 1-6
+  # when the plc block is set and that word is inside dsw.
   - id: acs-1
     vendor: cameleon
     device_kind: acs

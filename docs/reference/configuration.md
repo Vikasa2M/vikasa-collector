@@ -165,6 +165,16 @@ capturing `openits.us-ga.metro.d01.>` and
 `OPENITS-COLLECTOR-US-GA-METRO-D01` capturing
 `openits-collector.us-ga.metro.d01.>`. The names are logged at boot.
 
+### `cameleon-acs` connection
+
+Each ACS device needs its own `connection` block. The adapter reads that
+device's `dsw` span and decodes the gates listed for it. It does not infer
+a gate from a neighboring word, and it does not treat lane, TSC, or sign
+objects as gates. `kind: gate` and `kind: unknown` are both kind unknown;
+a layout does not have to guess warning or barrier. A program export that
+agrees with a layout is not fleet-wide hardware validation, and these
+synthetic layouts do not validate packed status bits on every PLC program.
+
 ### `devices.vendor` / `devices.device_kind`
 
 Together these select the adapter at boot. See

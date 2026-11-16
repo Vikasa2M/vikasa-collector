@@ -30,9 +30,12 @@ import (
 //	    config_crc: "0x00000000"                       # fault while live %R93/%R94 differ
 //	    watchdog_stall: "5s"                           # default 5s; 0 disables plc/not-scanning
 //
-// %R90–%R94 are the PLC status words when they fall inside dsw. Only bit 0 of
-// each cabinet word is the input. %R95–%R99 (user name) are not read. %R183
-// and every DCW address are never written.
+// The read is the configured dsw span, not a fixed gate count or a fixed
+// start. %R90–%R94 are decoded as PLC status only when plc is set and those
+// words sit inside the span. Only bit 0 of each cabinet word is the input.
+// A word inside the span is read even when no gate names it, including a
+// username word on a program that places one there. Lane, TSC, and sign
+// symbols are not gates. DCW addresses are never written.
 func RegisterTo(r *adapter.Registry) {
 	r.Register(acsDescriptor, func(deviceID string, conn map[string]any) (adapter.Adapter, error) {
 		cfg, err := parseACSBlock(conn)
@@ -54,7 +57,7 @@ type acsConn struct {
 }
 
 // gateIDPattern matches openits-reversible-lane-types:gate-id (length 1..64,
-// pattern [a-zA-Z0-9_-]+) in the pinned openits-models v0.8.0 YANG.
+// pattern [a-zA-Z0-9_-]+) in the pinned openits-models release.
 var gateIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // parseACSBlock is the trust boundary for the ACS connection block, which
