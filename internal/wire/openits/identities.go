@@ -620,34 +620,38 @@ const registryBase = "https://schemas.open-its.org/"
 // openits-common-*-events: those modules define the notifications, and
 // signal-control merely reuses them. It reads like a mistake and is not.
 //
-// Revisions are per-module, so they do NOT move in lockstep: dms-events is at
-// a later revision than the others because it changed and they did not.
-// Upstream deliberately refuses to cut no-op revisions just to keep a set of
-// constants aligned.
+// Revisions are per-module, so they do NOT move in lockstep. v0.9.0's
+// registry change makes the newest snapshot the one ce-dataschema must name:
+// common-comm-health, common-fault, common-mode, dms-events and rsu-events
+// moved to 2026-11-16 to pin the device-log case on the shared wire-source
+// grouping, and reversible-lane-events moved to 2026-11-14 to raise
+// openits-version and record that same composed shape. signal-control-events
+// stayed at 2026-11-09. Older snapshots remain in the registry and describe
+// a wire shape this release no longer compiles.
 //
 // Hard-coded because openits-models ships no Go catalog API. That is the
 // intended trade: a pin bump shows up as a reviewable diff of these constants
 // rather than as a silent behaviour change, and the goldens lock them.
 var dataSchemaFor = map[string]string{
-	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-10-16/",
+	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-11-16/",
 
-	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-10-17/",
-	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-11-16/",
+	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-11-16/",
 
-	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-11-16/",
 
 	// Same defining module for every service: fault-raised/cleared are
 	// declared once in openits-common-fault-events and reused, which is why
 	// six different services share one ce-dataschema.
-	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-11-16/",
 
 	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-11-09/",
 	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-11-09/",
@@ -659,9 +663,9 @@ var dataSchemaFor = map[string]string{
 	// v0.4.0 moved openits-dms-events to 2026-08-27 (the phase leaf at
 	// 2026-08-23, then the two new notifications); the other event modules
 	// cut no revision between v0.3.0 and v0.4.0, so only these three moved.
-	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-10-13/",
-	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-10-13/",
-	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-10-13/",
+	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-11-16/",
+	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-11-16/",
+	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-11-16/",
 
 	"openits.traffic-sensor.traffic-interval-report.v1": registryBase + "openits-traffic-sensor-events/2026-10-13/",
 
@@ -676,10 +680,10 @@ var dataSchemaFor = map[string]string{
 	// against the module its sibling event uses.
 	"openits.zone-occupancy.zone-occupancy-interval-report.v1": registryBase + "openits-zone-occupancy-events/2026-10-16/",
 
-	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-11-16/",
 	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-10-13/",
 
-	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-10-22/",
+	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-11-14/",
 }

@@ -3,6 +3,8 @@ package tier2_test
 import (
 	"context"
 	"errors"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -214,6 +216,8 @@ var envelopeChecks = []string{
 	"TestCEType_OpenitsFormat",
 	"TestCESource_URN",
 	"TestCEID_Present",
+	"TestCEDataSchema_ResolvesToSnapshot",
+	"TestCEDataSchema_PayloadMatchesSnapshot",
 	"TestEvent_SequenceContiguousWithinEpoch",
 	"TestFault_KindMatchesService",
 	"TestMode_ValueMatchesKind",
@@ -298,6 +302,22 @@ var serviceKind = map[string]string{
 	"traffic-sensor": "traffic-sensor", "perception": "perception", "zone-occupancy": "perception",
 }
 
+// pinnedRegistry is the v0.9.0 schema registry the ce-dataschema checks
+// resolve against. The harness compares each payload's compiled wire shape
+// with the snapshot that header names.
+func pinnedRegistry(t *testing.T) *conformance.Registry {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-m", "-f", "{{.Dir}}", "github.com/Vikasa2M/openits-models").Output()
+	if err != nil {
+		t.Fatalf("locate openits-models: %v", err)
+	}
+	reg, err := conformance.LoadRegistry(filepath.Join(strings.TrimSpace(string(out)), "schema-registry"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
 func TestCollectorStreamPassesTheTier2Harness(t *testing.T) {
 	ns, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -351,6 +371,7 @@ func TestCollectorStreamPassesTheTier2Harness(t *testing.T) {
 		env := conformance.EventEnvelope{
 			Subject: m.Subject, CEType: m.Header.Get("ce-type"),
 			CESource: m.Header.Get("ce-source"), CEID: m.Header.Get("ce-id"), CETime: ceTime,
+			CEDataSchema: m.Header.Get("ce-dataschema"),
 		}
 		// Payload checks skip an event whose Data is not the type they
 		// expect, so a missing decoder would make them pass vacuously: an
@@ -421,12 +442,13 @@ func TestCollectorStreamPassesTheTier2Harness(t *testing.T) {
 		t.Errorf("catalog-space subjects outside the 7-token shape, or for a service no harness kind judges: %q", stray)
 	}
 	window := time.Since(start)
+	registry := pinnedRegistry(t)
 	for kind, names := range checks {
 		suite := map[string]func(*conformance.T, *conformance.Observation){}
 		for _, tc := range conformance.All(kind) {
 			suite[tc.Name] = tc.Fn
 		}
-		obs := &conformance.Observation{Events: events[kind], Window: window}
+		obs := &conformance.Observation{Events: events[kind], Window: window, Registry: registry}
 		for _, name := range names {
 			fn, ok := suite[name]
 			if !ok {

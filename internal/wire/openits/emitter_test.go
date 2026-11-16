@@ -681,15 +681,15 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 	}{{
 		"asc mode-changed is defined by common-mode-events",
 		model.ModeChanged{Base: base("asc-1", "asc"), From: model.ModeFree, To: model.ModeCoordinated},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-common-mode-events/2026-11-16/",
 	}, {
 		"dms mode-changed shares that same defining module",
 		model.DMSDisplayStateChanged{Base: base("dms-1", "dms"), From: model.DisplayNormal, To: model.DisplayBlank},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-common-mode-events/2026-11-16/",
 	}, {
 		"fault-raised is defined by common-fault-events",
 		model.FaultRaised{Base: base("asc-1", "asc"), FaultID: "f1"},
-		"https://schemas.open-its.org/openits-common-fault-events/2026-10-14/",
+		"https://schemas.open-its.org/openits-common-fault-events/2026-11-16/",
 	}, {
 		"plan-applied is defined by signal-control-events",
 		model.PlanChanged{Base: base("asc-1", "asc"), ToPlanID: 1},
@@ -697,15 +697,15 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 	}, {
 		"message-activation-failed is defined by dms-events, at its own revision",
 		model.DMSMessageActivationFailed{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}, {
 		"message-changed is defined by dms-events, at the v0.4.0 revision",
 		model.DMSMessageChanged{Base: base("dms-1", "dms"), ToMemoryType: model.MemoryChangeable, ToSlot: 1},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}, {
 		"sign-status-report is defined by dms-events, at the v0.4.0 revision",
 		model.DMSSignStatusReport{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(tc.ev)

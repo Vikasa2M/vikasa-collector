@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.10
 
 require (
-	github.com/Vikasa2M/openits-models v0.8.0
+	github.com/Vikasa2M/openits-models v0.9.0
 	github.com/google/go-cmp v0.7.0
 	github.com/gosnmp/gosnmp v1.45.0
 	github.com/nats-io/jwt/v2 v2.8.2
@@ -26,7 +26,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/openconfig/gnmi v0.14.1 // indirect
 	github.com/openconfig/goyang v1.6.3 // indirect
-	github.com/openconfig/ygot v0.35.0 // indirect
+	github.com/openconfig/ygot v0.36.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b // indirect
 	golang.org/x/net v0.58.0 // indirect
