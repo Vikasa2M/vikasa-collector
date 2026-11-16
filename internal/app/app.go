@@ -226,6 +226,13 @@ func Run(ctx context.Context, cfg *config.Config, reg *adapter.Registry, opts Op
 	// before this boot — otherwise every restart re-raises every standing
 	// fault and loses whatever changed while it was down.
 	engine.HoldUntilSeeded()
+	// Restored faults are handed to an adapter that asks for them. The ACS
+	// reader uses that to keep a standing watchdog stall; other adapters ignore it.
+	byID := make(map[string]adapter.StateReader, len(cfg.Devices))
+	for i, d := range cfg.Devices {
+		byID[d.ID] = readers[i]
+	}
+	engine.WithSeedHook(restoreFaults(byID))
 	state := durable.Start(ctx, pub.JetStream(), engine, cfg.DeviceIDs(), log)
 
 	var wg sync.WaitGroup
@@ -299,6 +306,29 @@ func catalogEmitter(modelVersion, collectorID, epoch string) (wire.Emitter, erro
 // buildReaders builds one StateReader per device, in config order. On any
 // failure it closes what it already built, so the caller owns either every
 // reader or none.
+// faultRestorer is the optional adapter surface for faults that were
+// standing before this process. Adapters that do not implement it keep
+// the ordinary first-observation rules.
+type faultRestorer interface {
+	RestoreFaults([]model.Fault)
+}
+
+func restoreFaults(readers map[string]adapter.StateReader) func(string, []model.Facet) {
+	return func(id string, facets []model.Facet) {
+		r, ok := readers[id].(faultRestorer)
+		if !ok {
+			return
+		}
+		var faults []model.Fault
+		for _, f := range facets {
+			if fs, ok := f.(model.FaultSet); ok {
+				faults = append(faults, fs.Faults...)
+			}
+		}
+		r.RestoreFaults(faults)
+	}
+}
+
 func buildReaders(log *slog.Logger, devices []config.Device, reg *adapter.Registry) ([]adapter.StateReader, error) {
 	readers := make([]adapter.StateReader, 0, len(devices))
 	for _, d := range devices {

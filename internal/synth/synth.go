@@ -62,6 +62,7 @@ type Engine struct {
 	// run for it (ADR 0020 clause 2).
 	hold   bool
 	seeded map[string]bool
+	onSeed func(deviceID string, facets []model.Facet)
 	// prev[deviceID][kind] = last successfully-read facet
 	prev map[string]map[model.Kind]model.Facet
 }
@@ -101,13 +102,34 @@ func (e *Engine) HoldUntilSeeded() *Engine {
 	return e
 }
 
+// WithSeedHook sets the observer for a device's restored facets and returns
+// e. The hook runs inside Seed, before that device is marked ready, while
+// the engine lock is held. It must not call Apply or Seed.
+func (e *Engine) WithSeedHook(h func(deviceID string, facets []model.Facet)) *Engine {
+	e.mu.Lock()
+	e.onSeed = h
+	e.mu.Unlock()
+	return e
+}
+
+// DiffReady reports whether a snapshot read now may be diffed. While the
+// engine is held, a read that started before Seed is not ready: the adapter
+// may have judged the poll without the restored state.
+func (e *Engine) DiffReady(deviceID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.hold {
+		return true
+	}
+	return e.seeded[deviceID]
+}
+
 // Seed installs a device's previous state — what the engine knew before a
 // restart — and releases its hold. Facets of a kind with no differ, or of
 // the wrong type, are ignored, as Apply would ignore them. Seeding with no
 // facets is a first boot: diffing then follows first-observation rules.
 func (e *Engine) Seed(deviceID string, facets []model.Facet) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	dev := make(map[model.Kind]model.Facet, len(facets))
 	for _, f := range facets {
 		k := f.FacetKind()
@@ -116,7 +138,19 @@ func (e *Engine) Seed(deviceID string, facets []model.Facet) {
 		}
 	}
 	e.prev[deviceID] = dev
+	hook := e.onSeed
+	seeded := make([]model.Facet, 0, len(dev))
+	for _, f := range dev {
+		seeded = append(seeded, f)
+	}
+	// The hook runs before the device is marked seeded, and it runs under
+	// the engine lock. DiffReady stays false until the adapter has the
+	// restored faults. The hook must not call Apply or Seed.
+	if hook != nil {
+		hook(deviceID, seeded)
+	}
 	e.seeded[deviceID] = true
+	e.mu.Unlock()
 }
 
 // WithChangeHook sets the observer for remembered facets and returns e.

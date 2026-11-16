@@ -60,14 +60,20 @@ type acs struct {
 	cabinet          cabinetCfg
 	plc              plcCfg
 	now              func() time.Time
-	// Watchdog observation. wdHave is false until a published poll has seen
-	// the counter. wdStalled is true once plc/not-scanning has been raised
-	// for the current (wdLast, wdSince) window; a failed read must not erase
-	// that window, or the next good poll would false-clear and re-raise.
-	wdHave    bool
-	wdLast    uint16
-	wdSince   time.Time
-	wdStalled bool
+	// Watchdog observation. wdHave is false until a poll in this process has
+	// seen the counter. wdStalled is true once plc/not-scanning is standing
+	// for the current window; a failed read must not erase that window.
+	// wdRestored is a stall this process inherited from durable state. It is
+	// not a new observation, and it stays until the counter changes or the
+	// operator disables the inference. wdMoved is true once this process has
+	// seen the counter change, which is the evidence a prior stall ended.
+	// The times here are monotonic readings from a.now. They are not stored.
+	wdHave     bool
+	wdLast     uint16
+	wdSince    time.Time
+	wdStalled  bool
+	wdRestored bool
+	wdMoved    bool
 }
 
 // NewACS wraps an already-open word reader (fixtures / live tests).
@@ -296,10 +302,32 @@ func (a *acs) plcFaults(words []uint16, now time.Time) ([]model.Fault, error) {
 				"PLC config CRC does not match configuration", model.SeverityMajor)
 		}
 	}
-	if a.stalled(dsw0>>11, now) {
+	// keepRestoredStall runs after stalled so a restore that lands during
+	// this read is still reported. One new sample is not recovery.
+	if a.stalled(dsw0>>11, now) || a.keepRestoredStall(dsw0>>11) {
 		add("plc/not-scanning", model.FaultTypePLCNotScanning, "PLC watchdog has not advanced", model.SeverityCritical)
 	}
 	return out, nil
+}
+
+// RestoreFaults tells a new process which faults were already standing.
+// Only plc/not-scanning is remembered: the adapter's stall window does not
+// survive a restart, and publishing "not stalled" on the first sample would
+// clear a fault the engine just restored. Other faults are unaffected.
+// A record that predates fault types still matches on the fault id.
+func (a *acs) RestoreFaults(faults []model.Fault) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.plc.watchdogStall <= 0 || a.wdMoved {
+		return
+	}
+	for _, f := range faults {
+		if f.ID == "plc/not-scanning" {
+			a.wdRestored = true
+			a.wdStalled = true
+			return
+		}
+	}
 }
 
 func (a *acs) stalled(counter uint16, now time.Time) bool {
@@ -309,17 +337,52 @@ func (a *acs) stalled(counter uint16, now time.Time) bool {
 	// counter from one that advanced by a multiple of 32 between polls.
 	// No single poll interval removes that alias for every tick rate, so
 	// the stall check stays enabled and does not claim a safe cadence.
+	// watchdog_stall of 0 disables the inference. That is configuration,
+	// not an observation that the controller resumed scanning.
+	if a.plc.watchdogStall <= 0 {
+		a.wdRestored = false
+		return false
+	}
 	if !a.wdHave || counter != a.wdLast {
+		moved := a.wdHave && counter != a.wdLast
 		a.wdHave = true
 		a.wdLast = counter
 		a.wdSince = now
+		if moved {
+			a.wdMoved = true
+			a.wdRestored = false
+			a.wdStalled = false
+			return false
+		}
+		// The first sample in this process only starts a window.
+		if a.wdRestored {
+			a.wdStalled = true
+			return true
+		}
 		a.wdStalled = false
 		return false
 	}
-	if a.plc.watchdogStall <= 0 {
-		return false
+	if a.wdRestored {
+		a.wdStalled = true
+		return true
 	}
 	if now.Before(a.wdSince.Add(a.plc.watchdogStall)) {
+		return false
+	}
+	a.wdStalled = true
+	return true
+}
+
+// keepRestoredStall reports a stall inherited from the previous process
+// when this read has not seen the counter move. stalled may have run
+// before RestoreFaults; this second look closes that gap.
+func (a *acs) keepRestoredStall(counter uint16) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.plc.watchdogStall <= 0 || a.wdMoved || !a.wdRestored {
+		return false
+	}
+	if a.wdHave && a.wdLast != counter {
 		return false
 	}
 	a.wdStalled = true
