@@ -151,6 +151,9 @@ func (r *Runner) pollOnce(ctx context.Context) {
 	pctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// A read that starts before Seed did not see restored state. Diffing it
+	// after Seed would treat that incomplete verdict as authoritative.
+	ready := r.engine.DiffReady(r.deviceID)
 	snap, err := r.read(pctx)
 	var fault adapterFault
 	switch {
@@ -190,6 +193,9 @@ func (r *Runner) pollOnce(ctx context.Context) {
 				Reachable: true, ConsecutiveFailures: 0,
 			}})
 			r.consecutiveFailures = 0
+		}
+		if !ready {
+			return
 		}
 		snap.DeviceKind = r.deviceKind
 		if evs := r.engine.Apply(snap); len(evs) > 0 {

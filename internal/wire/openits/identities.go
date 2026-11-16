@@ -6,8 +6,10 @@ import (
 	cctvv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/cctv/v1"
 	dmsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/dms/v1"
 	pcpv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/perception/v1"
+	rlv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/reversible_lane/v1"
 	scv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/signal_control/v1"
 	tsv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/traffic_sensor/v1"
+	typesv1 "github.com/Vikasa2M/openits-models/pkg/proto/openits/types/v1"
 
 	"github.com/Vikasa2M/vikasa-collector/sdk/model"
 )
@@ -21,6 +23,13 @@ const (
 	cctvTypes       = "openits-cctv-types:"
 	trafficSenTypes = "openits-traffic-sensor-types:"
 	perceptionTypes = "openits-perception-types:"
+	rlTypes         = "openits-reversible-lane-types:"
+
+	// cameleonRLTypes is the Cameleon vendor identity module. Its
+	// identities derive from open reversible-lane classes, so a consumer
+	// that does not load it still sees the core base (for example
+	// reversible-lane-fault-gate).
+	cameleonRLTypes = "openits-vendor-cameleon-reversible-lane-types:"
 
 	// openits-types is the foundation layer. object-class and its object-*
 	// leaves lived in openits-perception-types until the v0.3.0 hoist
@@ -111,7 +120,7 @@ func flashCauseIdentity(c model.FlashCause) (string, bool) {
 //
 // CategoryUnknown is the zero value, so it is the common case for any adapter
 // that has not classified its faults yet; it must not silently suppress them.
-func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) {
+func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultType) (string, bool) {
 	switch deviceKind {
 	case "asc":
 		switch c {
@@ -190,10 +199,119 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string) (string, bool) 
 		default:
 			return dmsTypes + "dms-fault-event-kind", true
 		}
+	case "acs":
+		// ACS faults map only onto declared reversible-lane leaf identities,
+		// or onto Cameleon vendor identities derived from them. The pinned
+		// openits-models v0.9.0 conformance rule rejects the service base
+		// kind (reversible-lane-fault-event-kind), so unmapped types decline
+		// rather than fall back. Declined deliberately:
+		// cabinet gate-estop, because each gate's own emergency-stop leaf
+		// already covers per-gate e-stop; and cabinet-id-changed, because a
+		// cabinet-ID input changing state is an event, not a mismatch with
+		// what the site expects (cabinet-id-mismatch reports that). Clears
+		// carry Category and Type (ADR 0024).
+		if c == model.CategoryUnknown {
+			return "", false
+		}
+		switch ft {
+		case model.FaultTypeGateFailedToClose:
+			return rlTypes + "reversible-lane-fault-gate-failed-to-close", true
+		case model.FaultTypeGateFailedToOpen:
+			return rlTypes + "reversible-lane-fault-gate-failed-to-open", true
+		case model.FaultTypeGateEmergencyStop:
+			return rlTypes + "reversible-lane-fault-gate-emergency-stop", true
+		case model.FaultTypeGateInvalidInputs:
+			// The alarm's inputs are set per project, so it is a vendor
+			// identity derived from reversible-lane-fault-gate, not a core leaf.
+			return cameleonRLTypes + "cameleon-gate-invalid-inputs", true
+		case model.FaultTypeGateCommandRefused:
+			// The alarm is active. It does not say whether the cause was an
+			// interlock, an offline device, or an invalid cabinet ID, and it
+			// does not identify who issued the command.
+			return cameleonRLTypes + "cameleon-gate-command-refused", true
+		case model.FaultTypePLCNotScanning:
+			// A successful read observed a counter that stopped. That is the
+			// controller watchdog leaf. The description stays the observation;
+			// a failed read never reaches this case.
+			return rlTypes + "reversible-lane-fault-controller", true
+		case model.FaultTypePLCFault:
+			return rlTypes + "reversible-lane-fault-controller", true
+		case model.FaultTypePLCCabinetIDMismatch,
+			model.FaultTypePLCProgramCRCMismatch, model.FaultTypePLCConfigCRCMismatch:
+			return rlTypes + "reversible-lane-fault-controller-configuration", true
+		case model.FaultTypeCabinetLineFilter, model.FaultTypeCabinetSurgeProtector:
+			return rlTypes + "reversible-lane-fault-power", true
+		case model.FaultTypeCabinetDoor:
+			return rlTypes + "reversible-lane-fault-cabinet-door-open", true
+		default:
+			// FaultTypeCabinetGateEstop, FaultTypePLCCabinetIDChanged and any
+			// future unclassified type.
+			return "", false
+		}
 	default:
 		return "", false
 	}
 }
+
+// gateComponent names the gate a gate-scoped fault concerns. Empty GateID
+// (cabinet and PLC faults) returns nil.
+func gateComponent(gateID string) *typesv1.ComponentRef {
+	if gateID == "" {
+		return nil
+	}
+	return &typesv1.ComponentRef{
+		ComponentClass: rlTypes + "rl-component-gate",
+		ComponentId:    gateID,
+	}
+}
+
+// gatePositionFor maps domain gate motion/rest state onto the wire enum.
+func gatePositionFor(p model.GatePosition) rlv1.GatePosition {
+	switch p {
+	case model.GatePositionClosing:
+		return rlv1.GatePosition_GATE_POSITION_CLOSING
+	case model.GatePositionClosed:
+		return rlv1.GatePosition_GATE_POSITION_CLOSED
+	case model.GatePositionOpening:
+		return rlv1.GatePosition_GATE_POSITION_OPENING
+	case model.GatePositionOpened:
+		return rlv1.GatePosition_GATE_POSITION_OPEN
+	default:
+		return rlv1.GatePosition_GATE_POSITION_UNKNOWN
+	}
+}
+
+// gateOperatingModeFor maps domain gate mode onto the identityref string.
+func gateOperatingModeFor(m model.GateMode) string {
+	switch m {
+	case model.GateModeAuto:
+		return rlTypes + "reversible-lane-gate-mode-automatic"
+	case model.GateModeManual, model.GateModeManualNonInterlocked:
+		return rlTypes + "reversible-lane-gate-mode-manual"
+	case model.GateModeOffline:
+		return rlTypes + "reversible-lane-gate-mode-offline"
+	default:
+		return ""
+	}
+}
+
+// interlockBypassedFor maps Cameleon mode onto the optional wire leaf.
+// Automatic and Manual assert false; Manual Non-Interlocked asserts true;
+// Offline and Unknown leave the leaf unset (open question for the maintainer:
+// Offline could honestly claim false, but the mode already says the gate is
+// not under interlock control).
+func interlockBypassedFor(m model.GateMode) *bool {
+	switch m {
+	case model.GateModeAuto, model.GateModeManual:
+		return protoBool(false)
+	case model.GateModeManualNonInterlocked:
+		return protoBool(true)
+	default:
+		return nil
+	}
+}
+
+func protoBool(v bool) *bool { return &v }
 
 // dmsControlModeIdentity maps who is driving the sign. There is no "unknown"
 // member upstream (local/external/central/central-override/simulation/other),
@@ -499,48 +617,52 @@ const registryBase = "https://schemas.open-its.org/"
 // openits-common-*-events: those modules define the notifications, and
 // signal-control merely reuses them. It reads like a mistake and is not.
 //
-// Revisions are per-module, so they do NOT move in lockstep: dms-events is at
-// a later revision than the others because it changed and they did not.
-// Upstream deliberately refuses to cut no-op revisions just to keep a set of
-// constants aligned.
+// Revisions are per-module, so they do NOT move in lockstep. v0.9.0's
+// registry change makes the newest snapshot the one ce-dataschema must name:
+// common-comm-health, common-fault, common-mode, dms-events and rsu-events
+// moved to 2026-11-16 to pin the device-log case on the shared wire-source
+// grouping, and reversible-lane-events moved to 2026-11-14 to raise
+// openits-version and record that same composed shape. signal-control-events
+// stayed at 2026-11-09. Older snapshots remain in the registry and describe
+// a wire shape this release no longer compiles.
 //
 // Hard-coded because openits-models ships no Go catalog API. That is the
 // intended trade: a pin bump shows up as a reviewable diff of these constants
 // rather than as a silent behaviour change, and the goldens lock them.
 var dataSchemaFor = map[string]string{
-	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-10-16/",
+	"openits.signal-control.comm-health-event.v1": registryBase + "openits-common-comm-health-events/2026-11-16/",
 
-	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-10-17/",
-	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.signal-control.mode-changed.v1": registryBase + "openits-common-mode-events/2026-11-16/",
+	"openits.dms.mode-changed.v1":            registryBase + "openits-common-mode-events/2026-11-16/",
 
-	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.signal-control.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.signal-control.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.dms.fault-raised.v1":             registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.dms.fault-cleared.v1":            registryBase + "openits-common-fault-events/2026-11-16/",
 
 	// Same defining module for every service: fault-raised/cleared are
 	// declared once in openits-common-fault-events and reused, which is why
 	// six different services share one ce-dataschema.
-	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-10-14/",
+	"openits.cctv.fault-raised.v1":            registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.cctv.fault-cleared.v1":           registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.traffic-sensor.fault-raised.v1":  registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.traffic-sensor.fault-cleared.v1": registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-11-16/",
 
-	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-11-09/",
 
 	// v0.4.0 moved openits-dms-events to 2026-08-27 (the phase leaf at
 	// 2026-08-23, then the two new notifications); the other event modules
 	// cut no revision between v0.3.0 and v0.4.0, so only these three moved.
-	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-10-13/",
-	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-10-13/",
-	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-10-13/",
+	"openits.dms.message-activation-failed.v1": registryBase + "openits-dms-events/2026-11-16/",
+	"openits.dms.message-changed.v1":           registryBase + "openits-dms-events/2026-11-16/",
+	"openits.dms.sign-status-report.v1":        registryBase + "openits-dms-events/2026-11-16/",
 
 	"openits.traffic-sensor.traffic-interval-report.v1": registryBase + "openits-traffic-sensor-events/2026-10-13/",
 
@@ -555,6 +677,10 @@ var dataSchemaFor = map[string]string{
 	// against the module its sibling event uses.
 	"openits.zone-occupancy.zone-occupancy-interval-report.v1": registryBase + "openits-zone-occupancy-events/2026-10-16/",
 
-	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-10-17/",
+	"openits.cctv.mode-changed.v1":       registryBase + "openits-common-mode-events/2026-11-16/",
 	"openits.cctv.tour-state-changed.v1": registryBase + "openits-cctv-events/2026-10-13/",
+
+	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-11-16/",
+	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-11-14/",
 }

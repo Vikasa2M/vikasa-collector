@@ -560,16 +560,16 @@ func TestEncode_DetectorReport_RoundsIntervalAndFormatsOccupancy(t *testing.T) {
 	if len(got.GetDetector()) != 2 {
 		t.Fatalf("detector count = %d, want 2", len(got.GetDetector()))
 	}
-	// Occupancy is a YANG decimal64, so a string on the wire — 125 tenths is
-	// "12.5" percent, not the integer 125.
-	if w := "12.5"; got.GetDetector()[0].GetOccupancy() != w {
-		t.Errorf("occupancy = %q, want %q", got.GetDetector()[0].GetOccupancy(), w)
+	// occupancy-pct is a YANG decimal64, so a string on the wire — 125 tenths
+	// is "12.5" percent, not the integer 125. Zero is explicit "0.0".
+	if w := "12.5"; got.GetDetector()[0].GetOccupancyPct() != w {
+		t.Errorf("occupancy = %q, want %q", got.GetDetector()[0].GetOccupancyPct(), w)
 	}
 	if got.GetDetector()[0].GetVolume() != 42 {
 		t.Errorf("volume = %d, want 42", got.GetDetector()[0].GetVolume())
 	}
-	if w := "0.0"; got.GetDetector()[1].GetOccupancy() != w {
-		t.Errorf("zero occupancy = %q, want %q", got.GetDetector()[1].GetOccupancy(), w)
+	if w := "0.0"; got.GetDetector()[1].GetOccupancyPct() != w {
+		t.Errorf("zero occupancy = %q, want %q", got.GetDetector()[1].GetOccupancyPct(), w)
 	}
 }
 
@@ -620,6 +620,9 @@ func TestCETypes_IsCompleteSortedAndDeduped(t *testing.T) {
 		"openits.perception.zone-incident-detected.v1",
 		"openits.perception.zone-incident-updated.v1",
 		"openits.perception.zone-interval-report.v1",
+		"openits.reversible-lane.fault-cleared.v1",
+		"openits.reversible-lane.fault-raised.v1",
+		"openits.reversible-lane.gate-status-changed.v1",
 		"openits.signal-control.cabinet-output-changed.v1",
 		"openits.signal-control.comm-health-event.v1",
 		"openits.signal-control.detector-report.v1",
@@ -678,31 +681,31 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 	}{{
 		"asc mode-changed is defined by common-mode-events",
 		model.ModeChanged{Base: base("asc-1", "asc"), From: model.ModeFree, To: model.ModeCoordinated},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-common-mode-events/2026-11-16/",
 	}, {
 		"dms mode-changed shares that same defining module",
 		model.DMSDisplayStateChanged{Base: base("dms-1", "dms"), From: model.DisplayNormal, To: model.DisplayBlank},
-		"https://schemas.open-its.org/openits-common-mode-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-common-mode-events/2026-11-16/",
 	}, {
 		"fault-raised is defined by common-fault-events",
 		model.FaultRaised{Base: base("asc-1", "asc"), FaultID: "f1"},
-		"https://schemas.open-its.org/openits-common-fault-events/2026-10-14/",
+		"https://schemas.open-its.org/openits-common-fault-events/2026-11-16/",
 	}, {
 		"plan-applied is defined by signal-control-events",
 		model.PlanChanged{Base: base("asc-1", "asc"), ToPlanID: 1},
-		"https://schemas.open-its.org/openits-signal-control-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-signal-control-events/2026-11-09/",
 	}, {
 		"message-activation-failed is defined by dms-events, at its own revision",
 		model.DMSMessageActivationFailed{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}, {
 		"message-changed is defined by dms-events, at the v0.4.0 revision",
 		model.DMSMessageChanged{Base: base("dms-1", "dms"), ToMemoryType: model.MemoryChangeable, ToSlot: 1},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}, {
 		"sign-status-report is defined by dms-events, at the v0.4.0 revision",
 		model.DMSSignStatusReport{Base: base("dms-1", "dms")},
-		"https://schemas.open-its.org/openits-dms-events/2026-10-13/",
+		"https://schemas.open-its.org/openits-dms-events/2026-11-16/",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(tc.ev)
@@ -781,18 +784,24 @@ func TestEncode_SharedFaultsRouteForEveryServedDeviceKind(t *testing.T) {
 	// from the snapshot — so fault coverage for a new device kind is a
 	// routing-table change, not new domain surface. This is what lets the
 	// model->NATS path be complete before any adapter exists.
-	for _, tc := range []struct{ deviceKind, raised, cleared string }{
-		{"asc", "openits.signal-control.fault-raised.v1", "openits.signal-control.fault-cleared.v1"},
-		{"dms", "openits.dms.fault-raised.v1", "openits.dms.fault-cleared.v1"},
-		{"cctv", "openits.cctv.fault-raised.v1", "openits.cctv.fault-cleared.v1"},
-		{"traffic-sensor", "openits.traffic-sensor.fault-raised.v1", "openits.traffic-sensor.fault-cleared.v1"},
-		{"perception", "openits.perception.fault-raised.v1", "openits.perception.fault-cleared.v1"},
+	for _, tc := range []struct {
+		deviceKind, raised, cleared string
+		category                    model.FaultCategory
+		ft                          model.FaultType
+	}{
+		{"asc", "openits.signal-control.fault-raised.v1", "openits.signal-control.fault-cleared.v1", model.CategoryCommunication, model.FaultTypeUnknown},
+		{"dms", "openits.dms.fault-raised.v1", "openits.dms.fault-cleared.v1", model.CategoryCommunication, model.FaultTypeUnknown},
+		{"cctv", "openits.cctv.fault-raised.v1", "openits.cctv.fault-cleared.v1", model.CategoryCommunication, model.FaultTypeUnknown},
+		{"traffic-sensor", "openits.traffic-sensor.fault-raised.v1", "openits.traffic-sensor.fault-cleared.v1", model.CategoryCommunication, model.FaultTypeUnknown},
+		{"perception", "openits.perception.fault-raised.v1", "openits.perception.fault-cleared.v1", model.CategoryCommunication, model.FaultTypeUnknown},
+		// ACS never falls back to the service base kind; pick a declared leaf.
+		{"acs", "openits.reversible-lane.fault-raised.v1", "openits.reversible-lane.fault-cleared.v1", model.CategoryCabinet, model.FaultTypePLCNotScanning},
 	} {
 		t.Run(tc.deviceKind, func(t *testing.T) {
 			var raised commonv1.FaultRaised
 			if ct := encodeOK(t, model.FaultRaised{
 				Base: base("dev-1", tc.deviceKind), FaultID: "f1",
-				Severity: model.SeverityMajor, Category: model.CategoryCommunication,
+				Severity: model.SeverityMajor, Category: tc.category, Type: tc.ft,
 			}, &raised); ct != tc.raised {
 				t.Errorf("raised ce-type = %q, want %q", ct, tc.raised)
 			}
@@ -803,6 +812,7 @@ func TestEncode_SharedFaultsRouteForEveryServedDeviceKind(t *testing.T) {
 			var cleared commonv1.FaultCleared
 			if ct := encodeOK(t, model.FaultCleared{
 				Base: base("dev-1", tc.deviceKind), FaultID: "f1",
+				Category: tc.category, Type: tc.ft,
 			}, &cleared); ct != tc.cleared {
 				t.Errorf("cleared ce-type = %q, want %q", ct, tc.cleared)
 			}
@@ -821,13 +831,225 @@ func TestFaultKindIdentity_UnmappedCategoryFallsBackPerService(t *testing.T) {
 		"traffic-sensor": "openits-traffic-sensor-types:traffic-sensor-fault-event-kind",
 		"perception":     "openits-perception-types:perception-fault-event-kind",
 	} {
-		got, ok := faultKindIdentity(model.CategoryConflict, deviceKind)
+		got, ok := faultKindIdentity(model.CategoryConflict, deviceKind, model.FaultTypeUnknown)
 		if !ok {
 			t.Errorf("%s: no fault identity at all", deviceKind)
 			continue
 		}
 		if got != want {
 			t.Errorf("%s: kind = %q, want %q", deviceKind, got, want)
+		}
+	}
+}
+
+func TestFaultKindIdentity_ACSMapsByFaultType(t *testing.T) {
+	mapped := map[model.FaultType]string{
+		model.FaultTypeGateFailedToClose:     "openits-reversible-lane-types:reversible-lane-fault-gate-failed-to-close",
+		model.FaultTypeGateFailedToOpen:      "openits-reversible-lane-types:reversible-lane-fault-gate-failed-to-open",
+		model.FaultTypeGateEmergencyStop:     "openits-reversible-lane-types:reversible-lane-fault-gate-emergency-stop",
+		model.FaultTypeGateInvalidInputs:     "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-invalid-inputs",
+		model.FaultTypeGateCommandRefused:    "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-command-refused",
+		model.FaultTypePLCNotScanning:        "openits-reversible-lane-types:reversible-lane-fault-controller",
+		model.FaultTypePLCFault:              "openits-reversible-lane-types:reversible-lane-fault-controller",
+		model.FaultTypePLCCabinetIDMismatch:  "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
+		model.FaultTypePLCProgramCRCMismatch: "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
+		model.FaultTypePLCConfigCRCMismatch:  "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
+		model.FaultTypeCabinetLineFilter:     "openits-reversible-lane-types:reversible-lane-fault-power",
+		model.FaultTypeCabinetSurgeProtector: "openits-reversible-lane-types:reversible-lane-fault-power",
+		model.FaultTypeCabinetDoor:           "openits-reversible-lane-types:reversible-lane-fault-cabinet-door-open",
+	}
+	for ft, want := range mapped {
+		got, ok := faultKindIdentity(model.CategoryCabinet, "acs", ft)
+		if !ok || got != want {
+			t.Errorf("%s: got (%q, %v), want %q", ft, got, ok, want)
+		}
+	}
+	for _, ft := range []model.FaultType{model.FaultTypeCabinetGateEstop, model.FaultTypePLCCabinetIDChanged, model.FaultTypeUnknown} {
+		if got, ok := faultKindIdentity(model.CategoryCabinet, "acs", ft); ok {
+			t.Errorf("%s: mapped to %q; want declined", ft, got)
+		}
+	}
+	if got, ok := faultKindIdentity(model.CategoryUnknown, "acs", model.FaultTypeGateFailedToClose); ok {
+		t.Errorf("unknown category: got (%q, %v), want declined", got, ok)
+	}
+}
+
+func TestEncode_GateFaultNamesComponent(t *testing.T) {
+	raised, ceType := decodeFaultRaised(t, model.FaultRaised{
+		Base:     base("acs-1", "acs"),
+		FaultID:  "gate/WG-1/estop",
+		Severity: model.SeverityCritical,
+		Category: model.CategoryCabinet,
+		Type:     model.FaultTypeGateEmergencyStop,
+		GateID:   "WG-1",
+	})
+	if ceType != "openits.reversible-lane.fault-raised.v1" {
+		t.Errorf("ce-type = %q", ceType)
+	}
+	if raised.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-gate-emergency-stop" {
+		t.Errorf("kind = %q", raised.GetKind())
+	}
+	comp := raised.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-1" {
+		t.Fatalf("component = %+v", comp)
+	}
+
+	enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.FaultCleared{
+		Base: base("acs-1", "acs"), FaultID: "gate/WG-1/estop", Category: model.CategoryCabinet,
+		Type: model.FaultTypeGateEmergencyStop, GateID: "WG-1",
+	})
+	if err != nil || !ok {
+		t.Fatalf("clear Encode: ok=%v err=%v", ok, err)
+	}
+	var cleared commonv1.FaultCleared
+	if err := proto.Unmarshal(enc.Data, &cleared); err != nil {
+		t.Fatal(err)
+	}
+	comp = cleared.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-1" {
+		t.Fatalf("clear component = %+v", comp)
+	}
+
+	refused, ceType := decodeFaultRaised(t, model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "gate/WG-1/command-refused",
+		Severity: model.SeverityWarning, Category: model.CategoryCabinet,
+		Type: model.FaultTypeGateCommandRefused, GateID: "WG-1",
+	})
+	if ceType != "openits.reversible-lane.fault-raised.v1" {
+		t.Errorf("command-refused ce-type = %q", ceType)
+	}
+	if refused.GetKind() != "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-command-refused" {
+		t.Errorf("command-refused kind = %q", refused.GetKind())
+	}
+	comp = refused.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-1" {
+		t.Errorf("command-refused component = %+v", comp)
+	}
+
+	invalid, ceType := decodeFaultRaised(t, model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "gate/WG-1/invalid-inputs",
+		Severity: model.SeverityMajor, Category: model.CategoryCabinet,
+		Type: model.FaultTypeGateInvalidInputs, GateID: "WG-1",
+	})
+	if ceType != "openits.reversible-lane.fault-raised.v1" {
+		t.Errorf("invalid-inputs ce-type = %q", ceType)
+	}
+	if invalid.GetKind() != "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-invalid-inputs" {
+		t.Errorf("invalid-inputs kind = %q", invalid.GetKind())
+	}
+	comp = invalid.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-1" {
+		t.Errorf("invalid-inputs component = %+v", comp)
+	}
+
+	door, _ := decodeFaultRaised(t, model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "cabinet/door",
+		Severity: model.SeverityWarning, Category: model.CategoryCabinet,
+		Type: model.FaultTypeCabinetDoor,
+	})
+	if door.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-cabinet-door-open" {
+		t.Errorf("cabinet/door kind = %q", door.GetKind())
+	}
+	if door.GetComponent() != nil {
+		t.Errorf("cabinet/door component = %+v, want nil", door.GetComponent())
+	}
+
+	enc, ok, err = New("cabinet-poller-1", testEpoch).Encode(model.FaultRaised{
+		Base: base("acs-1", "acs"), FaultID: "cabinet/gate-estop",
+		Severity: model.SeverityCritical, Category: model.CategoryCabinet,
+		Type: model.FaultTypeCabinetGateEstop,
+	})
+	if err != nil || ok || enc != nil {
+		t.Errorf("cabinet/gate-estop: ok=%v err=%v; want declined", ok, err)
+	}
+}
+
+func TestACSFaultKindIgnoresFaultIDString(t *testing.T) {
+	raised, _ := decodeFaultRaised(t, model.FaultRaised{
+		Base:     base("acs-1", "acs"),
+		FaultID:  "renamed/not-a-gate-id/failed-to-close",
+		Severity: model.SeverityCritical,
+		Category: model.CategoryCabinet,
+		Type:     model.FaultTypeGateEmergencyStop,
+		GateID:   "WG-9",
+	})
+	if raised.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-gate-emergency-stop" {
+		t.Fatalf("kind = %q", raised.GetKind())
+	}
+	comp := raised.GetComponent()
+	if comp.GetComponentClass() != "openits-reversible-lane-types:rl-component-gate" || comp.GetComponentId() != "WG-9" {
+		t.Fatalf("component = %+v", comp)
+	}
+}
+
+func TestACSFaultRaiseAndClearShareKind(t *testing.T) {
+	mapped := []struct {
+		id     string
+		ft     model.FaultType
+		gateID string
+	}{
+		{"gate/WG-1/failed-to-close", model.FaultTypeGateFailedToClose, "WG-1"},
+		{"gate/WG-1/failed-to-open", model.FaultTypeGateFailedToOpen, "WG-1"},
+		{"gate/WG-1/estop", model.FaultTypeGateEmergencyStop, "WG-1"},
+		{"gate/WG-1/command-refused", model.FaultTypeGateCommandRefused, "WG-1"},
+		{"gate/WG-1/invalid-inputs", model.FaultTypeGateInvalidInputs, "WG-1"},
+		{"cabinet/lf-fault", model.FaultTypeCabinetLineFilter, ""},
+		{"cabinet/sp-fault", model.FaultTypeCabinetSurgeProtector, ""},
+		{"cabinet/door", model.FaultTypeCabinetDoor, ""},
+		{"plc/fault", model.FaultTypePLCFault, ""},
+		{"plc/cabinet-id-mismatch", model.FaultTypePLCCabinetIDMismatch, ""},
+		{"plc/program-crc-mismatch", model.FaultTypePLCProgramCRCMismatch, ""},
+		{"plc/config-crc-mismatch", model.FaultTypePLCConfigCRCMismatch, ""},
+		{"plc/not-scanning", model.FaultTypePLCNotScanning, ""},
+	}
+	for _, tc := range mapped {
+		raisedKind, ok := faultKindIdentity(model.CategoryCabinet, "acs", tc.ft)
+		if !ok {
+			t.Fatalf("%s: raise kind missing", tc.id)
+		}
+		clearedKind, ok := faultKindIdentity(model.CategoryCabinet, "acs", tc.ft)
+		if !ok || clearedKind != raisedKind {
+			t.Errorf("%s: raise %q clear %q", tc.id, raisedKind, clearedKind)
+		}
+		raised, _ := decodeFaultRaised(t, model.FaultRaised{
+			Base: base("acs-1", "acs"), FaultID: tc.id,
+			Severity: model.SeverityMajor, Category: model.CategoryCabinet,
+			Type: tc.ft, GateID: tc.gateID,
+		})
+		enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(model.FaultCleared{
+			Base: base("acs-1", "acs"), FaultID: tc.id, Category: model.CategoryCabinet,
+			Type: tc.ft, GateID: tc.gateID,
+		})
+		if err != nil || !ok {
+			t.Fatalf("%s clear: ok=%v err=%v", tc.id, ok, err)
+		}
+		var cleared commonv1.FaultCleared
+		if err := proto.Unmarshal(enc.Data, &cleared); err != nil {
+			t.Fatal(err)
+		}
+		if raised.GetKind() != cleared.GetKind() || raised.GetKind() != raisedKind {
+			t.Errorf("%s encoded raise=%q clear=%q want %q", tc.id, raised.GetKind(), cleared.GetKind(), raisedKind)
+		}
+		if cleared.GetFaultId() != tc.id {
+			t.Errorf("%s clear fault-id = %q", tc.id, cleared.GetFaultId())
+		}
+	}
+	declined := []struct {
+		id string
+		ft model.FaultType
+	}{
+		{"cabinet/gate-estop", model.FaultTypeCabinetGateEstop},
+		{"plc/cabinet-id-changed", model.FaultTypePLCCabinetIDChanged},
+	}
+	for _, tc := range declined {
+		for _, ev := range []model.Event{
+			model.FaultRaised{Base: base("acs-1", "acs"), FaultID: tc.id, Severity: model.SeverityMajor, Category: model.CategoryCabinet, Type: tc.ft},
+			model.FaultCleared{Base: base("acs-1", "acs"), FaultID: tc.id, Category: model.CategoryCabinet, Type: tc.ft},
+		} {
+			enc, ok, err := New("cabinet-poller-1", testEpoch).Encode(ev)
+			if err != nil || ok || enc != nil {
+				t.Errorf("%s %s: ok=%v err=%v; want declined both halves", tc.id, ev.EventKind(), ok, err)
+			}
 		}
 	}
 }

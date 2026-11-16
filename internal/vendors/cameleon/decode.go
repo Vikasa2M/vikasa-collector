@@ -1,0 +1,157 @@
+package cameleon
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/Vikasa2M/vikasa-collector/sdk/model"
+)
+
+// DecodeGateWord maps one Cameleon ACS gate DSW word into a GateReading.
+// Out-of-range mode/position bitfields clamp to Unknown (with a test).
+func DecodeGateWord(id string, kind model.GateKind, w uint16) model.GateReading {
+	modeBits := w & 0b11
+	posBits := (w >> 4) & 0b111
+	g := model.GateReading{
+		ID:          id,
+		Kind:        kind,
+		Mode:        gateModeFromBits(modeBits),
+		Position:    gatePositionFromBits(posBits),
+		LockOpen:    w&(1<<2) != 0,
+		LockClose:   w&(1<<3) != 0,
+		FailedClose: w&(1<<10) != 0,
+		FailedOpen:  w&(1<<11) != 0,
+		Estop:       w&(1<<12) != 0,
+		// Bit 13 ALM_CMD_Refused, bit 14 ALM_InvalidInputs. Bit 15 is spare.
+		// Bits 7–8 are PLC open/close requests and bit 9 is spare; not alarms.
+		CommandRefused: w&(1<<13) != 0,
+		InvalidInputs:  w&(1<<14) != 0,
+		Raw:            w,
+	}
+	return g
+}
+
+// gateModeFromBits maps the DSW mode field: 0 Offline, 1 Automatic, 2 Manual,
+// 3 Manual Non-Interlocked. Table 5 and the gate table of the Cameleon PLC
+// Interface Programming Guide (v1.4) give 0 Offline / 1 Automatic; the guide's
+// Figure 4 text and the Cameleon driver's enumeration list 0 Auto / 1 Offline,
+// so the guide contradicts itself. Table 5 is used because gates polled while
+// confirmed to be in automatic mode read mode bits 01 (words 0x0021 / 0x0025).
+// Modes 0, 2 and 3 were not observed live. bits is the 2-bit field, so every
+// value is a mode; Unknown is not a decode.
+func gateModeFromBits(bits uint16) model.GateMode {
+	switch bits & 0b11 {
+	case 0:
+		return model.GateModeOffline
+	case 1:
+		return model.GateModeAuto
+	case 2:
+		return model.GateModeManual
+	default:
+		return model.GateModeManualNonInterlocked
+	}
+}
+
+func gatePositionFromBits(bits uint16) model.GatePosition {
+	switch bits {
+	case 1:
+		return model.GatePositionClosing
+	case 2:
+		return model.GatePositionClosed
+	case 3:
+		return model.GatePositionOpening
+	case 4:
+		return model.GatePositionOpened
+	default:
+		// 0 and anything >4 → unknown
+		return model.GatePositionUnknown
+	}
+}
+
+// gateFaults returns raised Fault entries for a gate's alarm bits.
+func gateFaults(g model.GateReading) []model.Fault {
+	var out []model.Fault
+	add := func(suffix string, ft model.FaultType, desc string, sev model.FaultSeverity) {
+		out = append(out, model.Fault{
+			ID:          "gate/" + g.ID + "/" + suffix,
+			Severity:    sev,
+			Category:    model.CategoryCabinet,
+			Description: desc,
+			Type:        ft,
+			GateID:      g.ID,
+		})
+	}
+	if g.FailedClose {
+		add("failed-to-close", model.FaultTypeGateFailedToClose, "gate failed to close", model.SeverityMajor)
+	}
+	if g.FailedOpen {
+		add("failed-to-open", model.FaultTypeGateFailedToOpen, "gate failed to open", model.SeverityMajor)
+	}
+	if g.Estop {
+		add("estop", model.FaultTypeGateEmergencyStop, "gate emergency stop", model.SeverityCritical)
+	}
+	if g.CommandRefused {
+		// Cameleon guide: refused because of a PLC interlock, or because the
+		// device is offline, or because the PLC cabinet ID is invalid.
+		add("command-refused", model.FaultTypeGateCommandRefused,
+			"command refused because of PLC interlock or device is offline or invalid PLC cabinet ID", model.SeverityWarning)
+	}
+	if g.InvalidInputs {
+		// Bit 14 is the project-configured InvalidInputs alarm. The guide's
+		// table does not define it; the offline/cabinet-ID wording belongs
+		// to bit 13.
+		add("invalid-inputs", model.FaultTypeGateInvalidInputs, "ACS project alarm 5: invalid inputs", model.SeverityMajor)
+	}
+	return out
+}
+
+// cabinetFaults maps cabinet DI words to Fault entries. Only bit 0 is the
+// input; bits 1–15 are spare and must not raise a fault.
+func cabinetFaults(lf, sp, door, estop uint16) []model.Fault {
+	var out []model.Fault
+	if lf&1 != 0 {
+		out = append(out, model.Fault{
+			ID: "cabinet/lf-fault", Severity: model.SeverityMinor,
+			Category: model.CategoryCabinet, Description: "ACS line filter fault active",
+			Type: model.FaultTypeCabinetLineFilter,
+		})
+	}
+	if sp&1 != 0 {
+		out = append(out, model.Fault{
+			ID: "cabinet/sp-fault", Severity: model.SeverityMinor,
+			Category: model.CategoryCabinet, Description: "ACS surge protector fault active",
+			Type: model.FaultTypeCabinetSurgeProtector,
+		})
+	}
+	if door&1 != 0 {
+		out = append(out, model.Fault{
+			ID: "cabinet/door", Severity: model.SeverityWarning,
+			Category: model.CategoryCabinet, Description: "ACS cabinet door switch active",
+			Type: model.FaultTypeCabinetDoor,
+		})
+	}
+	if estop&1 != 0 {
+		out = append(out, model.Fault{
+			ID: "cabinet/gate-estop", Severity: model.SeverityCritical,
+			Category: model.CategoryCabinet, Description: "ACS cabinet-wide gate E-STOP active",
+			Type: model.FaultTypeCabinetGateEstop,
+		})
+	}
+	return out
+}
+
+func sortFaults(fs []model.Fault) {
+	sort.Slice(fs, func(i, j int) bool { return fs[i].ID < fs[j].ID })
+}
+
+func sortGates(gs []model.GateReading) {
+	sort.Slice(gs, func(i, j int) bool { return gs[i].ID < gs[j].ID })
+}
+
+func wordAt(block []uint16, dswStart, addr int) (uint16, error) {
+	idx := addr - dswStart
+	if idx < 0 || idx >= len(block) {
+		return 0, fmt.Errorf("%%R%d outside DSW block starting at %d length %d", addr, dswStart, len(block))
+	}
+	return block[idx], nil
+}

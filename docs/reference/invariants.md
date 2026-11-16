@@ -26,7 +26,7 @@ so the gap is visible rather than implied.
 | The openits-models pin carries no `replace` directive | ADR 0010 | `scripts/lint-boundary.sh` |
 | The openits-models pin names a release tag | ADR 0018 | `scripts/lint-boundary.sh` |
 | The pinned release is a current one, not an old tag | ADR 0018 | Review (manual) |
-| Absence of evidence is never a state change | ADR 0013 | `internal/synth/synth.go`, `TestFailedFacetSuspendsDiffing`, `TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`, `TestDMSFailedReadEmitsNothing`, `TestDMSEnvFailedReadEmitsNothing`, `TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure`, `TestZoneIncidentFailedReadNeitherClearsNorRedetects`, `TestTrafficIntervalFailedReadDoesNotDuplicateTheReport`, `TestZoneIntervalFailedReadDoesNotDuplicateTheReport` |
+| Absence of evidence is never a state change | ADR 0013 | `internal/synth/synth.go`, `TestFailedFacetSuspendsDiffing`, `TestFailedFaultReadNeverClears`, `TestFailedDetectorReadEmitsNothing`, `TestDMSFailedReadEmitsNothing`, `TestDMSEnvFailedReadEmitsNothing`, `TestCCTVFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure`, `TestZoneIncidentFailedReadNeitherClearsNorRedetects`, `TestTrafficIntervalFailedReadDoesNotDuplicateTheReport`, `TestZoneIntervalFailedReadDoesNotDuplicateTheReport`, `TestGateFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure` |
 | Config is the trust boundary; boot fails on the unrecognized | ADR 0014 | `internal/config`, `TestRunExitCodes` |
 | The broker credential comes from a file, never the URL | ADR 0022 | `internal/publish/security.go`, `TestValidateSecurity`, `TestCredentialsInTheURLAreRefusedUnlogged`, `TestStartErrorNeverContainsCredentials` |
 | Plaintext NATS only on loopback; TLS is always verified | ADR 0022 | `TestValidateSecurity`, `TestTLSBrokerIsVerifiedAgainstTheNamedCA` |
@@ -126,15 +126,16 @@ lists in `Snapshot.Errors` is skipped (`TestApplyIgnoresAFacetItsSnapshotReports
 and so is a facet whose Go type is not its differ's
 (`TestApplyRejectsAWrongTypedFacet`) — neither is evidence.
 
-**Every registered differ has a failed-read test** — the nine named in the
-table row above. The four in `internal/synth/failed_read_test.go` go one
+**Every registered differ has a failed-read test** — the ten named in the
+table row above. The four in `internal/synth/failed_read_test.go`, and
+`TestGateFailedReadEmitsNothingAndRecoveryDiffsAgainstPreFailure`, go one
 step further than "the failed poll emitted nothing": each recovery poll is
 chosen so that an engine which forgot the pre-failure state would emit
-something different (a transition with the wrong `From`, a re-detected
-incident, a duplicate interval report). That distinction matters because
-silence on the failed poll alone cannot tell a correct engine from one that
-wiped its memory — and a mutation that makes `Apply` forget state on a
-failed read fails all four.
+something different (a transition with the wrong `From`/`PreviousPosition`,
+a re-detected incident, a duplicate interval report). That distinction
+matters because silence on the failed poll alone cannot tell a correct
+engine from one that wiped its memory — and a mutation that makes `Apply`
+forget state on a failed read fails those recovery-shaped tests.
 
 ## Config is the trust boundary; boot fails on the unrecognized
 
@@ -158,8 +159,9 @@ the start of `app.Run`, every ce-type is rendered for every device through
 the subject template and must land inside its stream's binding. The
 `connection` block is opaque to the core, so each adapter applies the same
 rule to its own keys: `ntcip`'s `parseSNMPBlock`
-(`internal/vendors/ntcip/register.go`) rejects unknown keys and known keys
-of the wrong type. [The configuration
+(`internal/vendors/ntcip/register.go`) and `cameleon`'s `parseACSBlock`
+(`internal/vendors/cameleon/register.go`) reject unknown keys and known
+keys of the wrong type. [The configuration
 reference](configuration.md#fields) lists every check.
 
 The command line is held to the same rule: an unknown flag or an
@@ -381,7 +383,7 @@ real device. Violating this looks like an adapter PR whose fixtures were
 typed by hand from a specification rather than captured from a device, so
 the tests prove the adapter agrees with its author, not with the hardware.
 
-The two adapters show both sides. `ntcip-dms`'s fixtures are transcribed
+The ntcip adapters show both sides. `ntcip-dms`'s fixtures are transcribed
 from SNMP GETs against a real sign controller, and its test file says which
 one and when. `ntcip-asc`'s `healthyFixture`
 (`internal/vendors/ntcip/asc_test.go`) is a hand-typed

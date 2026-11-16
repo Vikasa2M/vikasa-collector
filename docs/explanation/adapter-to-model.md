@@ -39,9 +39,9 @@ snapshot, and it comes from the same `Descriptor` the adapter was
 registered under. An adapter has no code path to report a kind that
 disagrees with its registration.
 
-## Nine facet kinds
+## Ten facet kinds
 
-A facet is one typed slice of device state. There are nine facet kinds
+A facet is one typed slice of device state. There are ten facet kinds
 today; `grep -n 'Kind = "' sdk/model/*.go` lists them.
 
 | Kind constant | Facet type | What it holds |
@@ -55,12 +55,14 @@ today; `grep -n 'Kind = "' sdk/model/*.go` lists them.
 | `KindTrafficIntervals` | `TrafficIntervals` | a completed measurement interval from a roadside traffic sensor |
 | `KindZoneIncidents` | `ZoneIncidents` | incidents a perception sensor currently observes in its zones |
 | `KindZoneIntervals` | `ZoneIntervals` | a completed counting interval over a perception sensor's zones |
+| `KindGateBank` | `GateBank` | per-gate mode and position for a reversible-lane ACS |
 
-Two adapters ship today. `ntcip-asc` produces `SignalStatus`, `FaultSet`,
+Three adapters ship today. `ntcip-asc` produces `SignalStatus`, `FaultSet`,
 and `DetectorSamples`. `ntcip-dms` produces `DMSStatus` and
-`DMSEnvironment`. The other four kinds are fully modelled, diffed, and
-mapped to the wire, with no adapter producing them yet. Adding an adapter
-for one means writing the transport read, not changing the domain model.
+`DMSEnvironment`. `cameleon-acs` produces `GateBank` and `FaultSet`. The
+remaining kinds are fully modelled, diffed, and mapped to the wire, with
+no adapter producing them yet. Adding an adapter for one means writing the
+transport read, not changing the domain model.
 
 ## Present, absent, or empty: three states a facet can be in
 

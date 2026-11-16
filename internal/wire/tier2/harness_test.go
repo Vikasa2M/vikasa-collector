@@ -68,6 +68,7 @@ var stateChecks = []string{
 	"TestDetectors_AssignedToPhase",
 	"TestDetectors_AtLeastOne",
 	"TestDetectors_MeasurementReported",
+	"TestPedestrianDetectors_CallPhaseResolves",
 	"TestHealth_NotFlashing",
 	"TestHealth_OperationalStatus",
 	"TestIdentity_ControllerID",
@@ -123,6 +124,12 @@ var stateChecks = []string{
 var unpublished = map[string]string{
 	"TestCctvEvent_PresetRecalledShape": "openits.cctv.ptz-preset-recalled.v1",
 	"TestCctvEvent_LockoutDeniedShape":  "openits.cctv.lockout-denied.v1",
+	// The check reads detector-transition and pedestrian-event. Neither is
+	// emitted. The map can name one ce-type; detector-transition is that
+	// key, and pedestrian-event is the same unpublished gap. Running the
+	// check on a stream that never carries either subject would not
+	// exercise the assertion.
+	"TestDetectorEvents_ReferenceConfiguredDetectors": "openits.signal-control.detector-transition.v1",
 }
 
 // A release that adds a harness check must not leave it silently unrun: for

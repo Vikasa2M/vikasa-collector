@@ -46,6 +46,7 @@ tooling keeps them in the git-ignored `.superpowers/` directory.
 | Deploy a collector | [`how-to/deploy-a-collector.md`](how-to/deploy-a-collector.md) — one cabinet: install, systemd, health checks, upgrade and rollback |
 | See designs not yet built | [`specs/2026-08-09-fleet-deployment.md`](specs/2026-08-09-fleet-deployment.md) (fleet-scale rollout) and [`specs/2026-08-09-management-surface-design.md`](specs/2026-08-09-management-surface-design.md) (the management surface's design record; all but `sd_notify` is built) |
 | Know what is already known to be broken | [Known gaps and successor work](#known-gaps-and-successor-work), below |
+| Read the lab gate-validation record | [`explanation/acs-lab-validation.md`](explanation/acs-lab-validation.md) — what one bounded relay run established, and what it did not |
 
 ## Task guides in `.claude/skills/`
 
@@ -75,12 +76,11 @@ git show e6e2b1f:docs/notes/2026-08-17-documentation-truth-audit.md
 
 ### The code does not meet a bar the docs correctly state
 
-**49 catalog ce-types are declared upstream and unmapped; 3 of them are owed
-in services the collector already serves.** Against the v0.8.0 pin the
-emitter maps 30 of the catalog's 79 ce-types. Under
-[ADR 0016](adr/0016-collector-as-transitional-shim.md) the collector adapts
-to the catalog, so an unmapped ce-type is work owed here, not a catalog
-problem.
+**Catalog ce-types the emitter does not produce are the `unmapped` allowlist.**
+Under [ADR 0016](adr/0016-collector-as-transitional-shim.md) the collector
+adapts to the catalog, so an allowlisted ce-type is work owed here, not a
+catalog problem. Reversible-lane is not an unmodelled service: gate-status
+and the reversible-lane fault events are mapped.
 
 The live list is the `unmapped` allowlist in
 `internal/wire/openits/catalog_test.go`. Its tests keep it exact against the
@@ -88,9 +88,11 @@ pinned release: a newly declared ce-type fails CI until it is mapped or
 allowlisted, and an entry that is mapped or no longer declared fails as
 stale. Each entry carries one of four reasons:
 
-- **service not modelled** (32) — `ess`, `ramp-metering`,
-  `reversible-lane`, `rsu`, `work-zone`. These need a domain facet and an
-  adapter first, not just a mapping.
+- **service not modelled** — `ess`, `ramp-metering`, `rsu`, `work-zone`,
+  plus the reversible-lane events this collector does not read
+  (lane-state, LCS conflict, LCS indication, transition-timeout). The
+  services without a facet still need one before a mapping. The
+  reversible-lane remainder does not.
 - **describes a command** (3) — the `openits.cctv.*` PTZ and lockout
   events. The collector commands nothing; the SDK has no command path at
   all ([ADR 0021](adr/0021-sdk-interfaces-ship-with-their-first-implementer.md)).

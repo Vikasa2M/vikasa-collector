@@ -15,7 +15,7 @@ already tracks against itself.
 
 ## The safest first PR — if you have the device
 
-Nine facet kinds are modelled in `sdk/model`, each diffed by a registered
+Ten facet kinds are modelled in `sdk/model`, each diffed by a registered
 differ in `internal/synth` and mapped to ce-types in
 `internal/wire/openits/emitter.go`, with goldens. (A *facet* is one slice
 of a device's state that an adapter reads and a differ compares poll to

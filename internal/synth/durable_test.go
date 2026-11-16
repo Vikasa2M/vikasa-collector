@@ -81,10 +81,20 @@ func TestChangeHookReportsDurableKindsOnly(t *testing.T) {
 func TestDecodeFacetRoundTripsEveryDurableKind(t *testing.T) {
 	t.Parallel()
 	e := NewEngine(NewSignalDiffer(), NewFaultDiffer(), NewDMSDiffer(), NewDMSEnvironmentDiffer(),
-		NewTrafficIntervalDiffer(), NewZoneIncidentDiffer(), NewZoneIntervalDiffer(), NewCCTVDiffer())
+		NewTrafficIntervalDiffer(), NewZoneIncidentDiffer(), NewZoneIntervalDiffer(), NewCCTVDiffer(),
+		NewGateDiffer())
+	seen := time.Date(2026, 11, 16, 15, 4, 5, 0, time.UTC)
 	facets := []model.Facet{
 		model.SignalStatus{CabinetOutput: model.OutputFlash, ActivePlanID: 7, PreemptionActive: true, PreemptionSource: "rail"},
 		model.FaultSet{Faults: []model.Fault{mmu, door}},
+		model.FaultSet{Faults: []model.Fault{{
+			ID: "gate/G01/command-refused", Severity: model.SeverityWarning, Category: model.CategoryCabinet,
+			Description: "command refused", FirstObserved: seen, Type: model.FaultTypeGateCommandRefused, GateID: "G01",
+		}}},
+		model.GateBank{Gates: []model.GateReading{
+			{ID: "G01", Kind: model.GateKindWarning, Mode: model.GateModeAuto, Position: model.GatePositionClosed, LockOpen: true, Raw: 0x0025},
+			{ID: "G02", Kind: model.GateKindUnknown, Mode: model.GateModeManualNonInterlocked, Position: model.GatePositionOpening, CommandRefused: true, Estop: true, Raw: 0x2033},
+		}},
 		model.DMSStatus{ControlMode: model.ControlLocal, ActiveSlot: 4, MessageText: "[jl3]SLOW"},
 		model.DMSEnvironment{HumidityReported: true},
 		intervals(tsAt, 12),
@@ -107,5 +117,37 @@ func TestDecodeFacetRoundTripsEveryDurableKind(t *testing.T) {
 	}
 	if _, err := e.DecodeFacet("no-such-kind", []byte(`{}`)); err == nil {
 		t.Error("DecodeFacet accepted a kind with no differ")
+	}
+	// A fault stored before Type and GateID existed must load, and the
+	// missing fields stay zero. DecodeFacet does not invent a classification.
+	legacy, err := e.DecodeFacet(model.KindFaultSet, []byte(`{"Faults":[{"ID":"legacy","Description":"before type"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := legacy.(model.FaultSet).Faults
+	if len(old) != 1 || old[0].ID != "legacy" || old[0].Type != 0 || old[0].GateID != "" || !old[0].FirstObserved.IsZero() {
+		t.Fatalf("legacy fault = %+v", old)
+	}
+	// The decoded classification is what a later clear carries.
+	held := NewEngine(NewFaultDiffer()).HoldUntilSeeded()
+	rich, err := json.Marshal(model.FaultSet{Faults: []model.Fault{{
+		ID: "gate/G01/command-refused", Severity: model.SeverityWarning, Category: model.CategoryCabinet,
+		Description: "command refused", FirstObserved: seen, Type: model.FaultTypeGateCommandRefused, GateID: "G01",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := held.DecodeFacet(model.KindFaultSet, rich)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held.Seed("asc-1", []model.Facet{decoded})
+	evs := held.Apply(faultSnap(seen.Add(time.Second)))
+	if len(evs) != 1 {
+		t.Fatalf("clear after round-trip = %v", evs)
+	}
+	fc, ok := evs[0].(model.FaultCleared)
+	if !ok || fc.Type != model.FaultTypeGateCommandRefused || fc.GateID != "G01" || !fc.FirstObserved.Equal(seen) {
+		t.Fatalf("clear lost classification: %#v", evs[0])
 	}
 }

@@ -115,9 +115,9 @@ func (e *emitter) encodeSignalControl(ev model.Event) (proto.Message, bool) {
 		dets := make([]*scv1.DetectorReportDetector, 0, len(v.Readings))
 		for _, r := range v.Readings {
 			dets = append(dets, &scv1.DetectorReportDetector{
-				DetectorId: proto.Uint32(r.Channel),
-				Volume:     proto.Uint32(r.VolumeDelta),
-				Occupancy:  proto.String(occupancyPercent(r.OccupancyTenths)),
+				DetectorId:   proto.Uint32(r.Channel),
+				Volume:       proto.Uint32(r.VolumeDelta),
+				OccupancyPct: proto.String(occupancyPercent(r.OccupancyTenths)),
 			})
 		}
 		msg = &scv1.DetectorReport{
