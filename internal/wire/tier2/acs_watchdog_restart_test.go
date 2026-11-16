@@ -3,6 +3,7 @@ package tier2_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +38,7 @@ func TestACSWatchdogRestartKeepsTheStandingStall(t *testing.T) {
 
 	start := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	firstPLC := cameleon.NewScriptedPLC(4, 5*time.Second, start)
-	cfg := loadWatchdogConfig(t, firstPLC)
+	cfg := loadWatchdogConfig(t, firstPLC, "20ms")
 	streamName := publish.StreamNameForBinding("openits.us-ga.metro.d01.>")
 
 	nc, err := nats.Connect(ns.ClientURL())
@@ -93,38 +94,87 @@ func TestACSWatchdogRestartKeepsTheStandingStall(t *testing.T) {
 		t.Fatalf("first run: %v", err)
 	}
 
-	secondPLC := cameleon.NewScriptedPLC(4, 5*time.Second, start.Add(5*time.Second))
+	// T1 is the post-seed poll with the counter still at 4. T2 is the later
+	// poll that observes the counter advance. ce-time distinguishes them.
+	t1 := start.Add(5 * time.Second)
+	t2 := start.Add(6 * time.Second)
+	secondPLC := cameleon.NewScriptedPLC(4, 5*time.Second, t1)
+	secondPLC.HoldReads()
+	secondCfg := loadWatchdogConfig(t, secondPLC, "5s")
+	seeded := make(chan struct{}, 1)
+	log := slog.New(&seedLoadedLog{ch: seeded})
 	appCtx, cancelRestart := context.WithCancel(context.Background())
 	defer cancelRestart()
 	go func() {
-		runErr <- app.Run(appCtx, cfg, registryFor(secondPLC), app.Options{NATSURL: ns.ClientURL(), Version: "test"})
+		runErr <- app.Run(appCtx, secondCfg, registryFor(secondPLC),
+			app.Options{NATSURL: ns.ClientURL(), Version: "test", Logger: log})
 	}()
-	waitPLCPolls(t, secondPLC, 1)
-	quietUntil := time.Now().Add(400 * time.Millisecond)
-	for time.Now().Before(quietUntil) {
-		if msgs := streamMsgs(t, st); msgs != 1 {
-			t.Fatalf("restart stored %d catalog messages, want 1; a standing watchdog fault must not clear or raise again", msgs)
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-seeded:
+	case <-time.After(12 * time.Second):
+		t.Fatal("durable load did not finish")
 	}
-	expectNone(t, cons)
-
-	secondPLC.SetClock(start.Add(6 * time.Second))
+	if !secondPLC.WatchdogRestored() {
+		t.Fatal("seed returned without restoring plc/not-scanning to the new adapter")
+	}
+	// One read may already be inside Read with a pre-seed DiffReady sample.
+	// Releasing it, then waiting for the next entry, orders the proof read
+	// after that pollOnce returns and therefore after seed.
+	waitRead(t, secondPLC)
+	secondPLC.ReleaseRead()
+	waitRead(t, secondPLC)
+	secondPLC.SetGateWord(0x0031) // automatic, opening; the seeded word is 0
+	secondPLC.ReleaseRead()
+	waitRead(t, secondPLC) // proof pollOnce has returned; this read has not copied the image
+	secondPLC.SetClock(t2)
 	secondPLC.SetCounter(5)
-	cleared := takeLogical(t, cons)
-	if cleared.ceType != "openits.reversible-lane.fault-cleared.v1" {
-		t.Fatalf("ce-type = %q", cleared.ceType)
+	secondPLC.ReleaseRead()
+
+	var after []storedEvent
+	deadline := time.Now().Add(12 * time.Second)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatal("post-seed polls did not produce the counter-advance clear")
+		}
+		ev := fetchStored(t, cons, remaining)
+		after = append(after, ev)
+		if ev.ceType == "openits.reversible-lane.fault-cleared.v1" {
+			break
+		}
 	}
-	fc := cleared.data.(*commonv1.FaultCleared)
+	var gateAt time.Time
+	var gateN, clearN, raiseN int
+	var fc *commonv1.FaultCleared
+	for _, ev := range after {
+		switch ev.ceType {
+		case "openits.reversible-lane.gate-status-changed.v1":
+			gateN++
+			gateAt = ev.ceTime
+		case "openits.reversible-lane.fault-cleared.v1":
+			clearN++
+			fc = ev.data.(*commonv1.FaultCleared)
+			if !ev.ceTime.Equal(t2) {
+				t.Fatalf("clear ce-time = %s, want the advance poll %s", ev.ceTime, t2)
+			}
+		case "openits.reversible-lane.fault-raised.v1":
+			raiseN++
+		default:
+			t.Fatalf("unexpected catalog event %s", ev.ceType)
+		}
+	}
+	if gateN != 1 || !gateAt.Equal(t1) {
+		t.Fatalf("gate events = %d at %s, want one applied poll at %s", gateN, gateAt, t1)
+	}
+	if raiseN != 0 || clearN != 1 {
+		t.Fatalf("after restart raises=%d clears=%d, want no raise and one advance clear", raiseN, clearN)
+	}
 	if fc.GetFaultId() != "plc/not-scanning" ||
 		fc.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-controller" {
 		t.Fatalf("cleared = id %q kind %q", fc.GetFaultId(), fc.GetKind())
 	}
 	if fc.GetFirstObserved() == nil || !fc.GetFirstObserved().AsTime().Equal(original) {
 		t.Fatalf("cleared first_observed = %v, want %v", fc.GetFirstObserved().AsTime(), original)
-	}
-	if msgs := streamMsgs(t, st); msgs != 2 {
-		t.Fatalf("recovery stored %d catalog messages, want 2", msgs)
 	}
 
 	cancelRestart()
@@ -133,15 +183,39 @@ func TestACSWatchdogRestartKeepsTheStandingStall(t *testing.T) {
 	}
 }
 
+// seedLoadedLog reports the durable package's existing "synth state loaded"
+// line. That line is written after Seed returns, so the engine mutex has
+// been released and the device is marked ready. Enabled stays true so the
+// wrapper still delivers the record; the record itself is not printed.
+type seedLoadedLog struct {
+	ch chan struct{}
+}
+
+func (s *seedLoadedLog) Enabled(context.Context, slog.Level) bool { return true }
+
+func (s *seedLoadedLog) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == "synth state loaded" {
+		select {
+		case s.ch <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+func (s *seedLoadedLog) WithAttrs([]slog.Attr) slog.Handler { return s }
+
+func (s *seedLoadedLog) WithGroup(string) slog.Handler { return s }
+
 func registryFor(plc *cameleon.ScriptedPLC) *adapter.Registry {
 	reg := adapter.NewRegistry()
 	plc.Register(reg)
 	return reg
 }
 
-func loadWatchdogConfig(t *testing.T, plc *cameleon.ScriptedPLC) *config.Config {
+func loadWatchdogConfig(t *testing.T, plc *cameleon.ScriptedPLC, interval string) *config.Config {
 	t.Helper()
-	const cfgYAML = `
+	cfgYAML := `
 collector_id: scripted-acs-collector
 region: us-ga
 agency: metro
@@ -149,7 +223,7 @@ agency_unit: d01
 site: cab-1
 model_version: openits/v1
 devices:
-  - { id: acs-1, vendor: cameleon, device_kind: acs, poll_interval: 20ms, connection: {} }
+  - { id: acs-1, vendor: cameleon, device_kind: acs, poll_interval: ` + interval + `, connection: {} }
 `
 	cfgPath := filepath.Join(t.TempDir(), "collector.yaml")
 	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
@@ -160,6 +234,28 @@ devices:
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+func waitRead(t *testing.T, plc *cameleon.ScriptedPLC) {
+	t.Helper()
+	select {
+	case <-plc.ReadEntered():
+	case <-time.After(12 * time.Second):
+		t.Fatal("held read did not start")
+	}
+}
+
+func fetchStored(t *testing.T, cons jetstream.Consumer, wait time.Duration) storedEvent {
+	t.Helper()
+	msg, err := cons.Next(jetstream.FetchMaxWait(wait))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	ev := decodeStored(t, msg)
+	if err := msg.Ack(); err != nil {
+		t.Fatal(err)
+	}
+	return ev
 }
 
 func waitPLCPolls(t *testing.T, plc *cameleon.ScriptedPLC, n int) {

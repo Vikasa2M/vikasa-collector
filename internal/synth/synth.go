@@ -104,7 +104,8 @@ func (e *Engine) HoldUntilSeeded() *Engine {
 
 // WithSeedHook sets the observer for a device's restored facets and returns
 // e. The hook runs inside Seed, before that device is marked ready, while
-// the engine lock is held. It must not call Apply or Seed.
+// the engine mutex is held. It must not call engine methods that take that
+// mutex: Seed, Apply, and DiffReady.
 func (e *Engine) WithSeedHook(h func(deviceID string, facets []model.Facet)) *Engine {
 	e.mu.Lock()
 	e.onSeed = h
@@ -144,8 +145,8 @@ func (e *Engine) Seed(deviceID string, facets []model.Facet) {
 		seeded = append(seeded, f)
 	}
 	// The hook runs before the device is marked seeded, and it runs under
-	// the engine lock. DiffReady stays false until the adapter has the
-	// restored faults. The hook must not call Apply or Seed.
+	// the engine mutex. DiffReady stays false until the hook returns.
+	// The hook must not call Seed, Apply, or DiffReady.
 	if hook != nil {
 		hook(deviceID, seeded)
 	}

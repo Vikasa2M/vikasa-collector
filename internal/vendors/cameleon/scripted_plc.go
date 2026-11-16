@@ -16,13 +16,17 @@ import (
 // The type is in a non-_test.go file so tests in another package can import
 // it. A helper in a _test.go file is visible only inside package cameleon.
 type ScriptedPLC struct {
-	mu     sync.Mutex
-	a      *acs
-	words  []uint16
-	clock  time.Time
-	stall  time.Duration
-	polls  int
-	reader wordClient
+	mu      sync.Mutex
+	a       *acs
+	live    *acs
+	words   []uint16
+	clock   time.Time
+	stall   time.Duration
+	polls   int
+	reader  wordClient
+	entered chan struct{}
+	release chan struct{}
+	holding bool
 }
 
 // NewScriptedPLC returns a reader whose %R90 watchdog counter starts at
@@ -50,6 +54,9 @@ func (s *ScriptedPLC) readerFor(deviceID string) *acs {
 		defer s.mu.Unlock()
 		return s.clock
 	}
+	s.mu.Lock()
+	s.live = a
+	s.mu.Unlock()
 	return a
 }
 
@@ -84,6 +91,63 @@ func (s *ScriptedPLC) SetCounter(counter uint16) {
 	s.mu.Unlock()
 }
 
+// SetGateWord replaces the scripted %R101 word. The block starts at %R90,
+// so that gate is words[11].
+func (s *ScriptedPLC) SetGateWord(word uint16) {
+	s.mu.Lock()
+	s.words[11] = word
+	s.mu.Unlock()
+}
+
+// RestoreFaults forwards to the direct reader. The adapter app.Run builds
+// is separate; production restoration goes through that adapter's method.
+func (s *ScriptedPLC) RestoreFaults(faults []model.Fault) {
+	s.a.RestoreFaults(faults)
+}
+
+// WatchdogRestored reports whether the adapter most recently built for this
+// image was told a plc/not-scanning fault was standing.
+func (s *ScriptedPLC) WatchdogRestored() bool {
+	s.mu.Lock()
+	a := s.live
+	s.mu.Unlock()
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.wdRestored
+}
+
+// HoldReads makes each word read wait until ReleaseRead. The wait happens
+// before the word image is copied, so a test can change the image for the
+// read it is about to release.
+func (s *ScriptedPLC) HoldReads() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.holding {
+		return
+	}
+	s.holding = true
+	s.entered = make(chan struct{})
+	s.release = make(chan struct{})
+}
+
+// ReadEntered is signaled from inside a held read, before the image is copied.
+func (s *ScriptedPLC) ReadEntered() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.entered
+}
+
+// ReleaseRead lets the read currently waiting in ReadEntered copy the image.
+func (s *ScriptedPLC) ReleaseRead() {
+	s.mu.Lock()
+	ch := s.release
+	s.mu.Unlock()
+	ch <- struct{}{}
+}
+
 // FailReads makes the next Read return err, the same way a timed-out SRTP
 // read does. An already-raised stall is kept.
 func (s *ScriptedPLC) FailReads(err error) { s.a.client = failWords{err: err} }
@@ -107,6 +171,22 @@ type guardedWords struct {
 }
 
 func (g guardedWords) ReadWords(ctx context.Context, mem byte, addr, count int) ([]uint16, error) {
+	g.plc.mu.Lock()
+	holding := g.plc.holding
+	entered, release := g.plc.entered, g.plc.release
+	g.plc.mu.Unlock()
+	if holding {
+		select {
+		case entered <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	g.plc.mu.Lock()
 	defer g.plc.mu.Unlock()
 	g.plc.polls++
