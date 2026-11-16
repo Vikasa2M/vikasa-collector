@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -308,32 +307,19 @@ func (c *Client) readMemoryOnce(ctx context.Context, memType byte, address0Based
 		if declared < need {
 			return nil, fmt.Errorf("srtp data length 0x%02x shorter than %d bytes", first[42], need)
 		}
-		data := append([]byte(nil), first[56:n]...)
-		if len(data) < declared {
-			buf := make([]byte, 4096)
-			for len(data) < declared {
-				stopMore, err := armDeadline(ctx, conn, c.timeout)
-				if err != nil {
-					return nil, err
-				}
-				m, err := conn.Read(buf)
-				stopMore()
-				if err != nil {
-					if ctx.Err() != nil {
-						return nil, ctx.Err()
-					}
-					if errors.Is(err, io.EOF) && len(data) > 0 {
-						break
-					}
-					return nil, fmt.Errorf("read data packet: %w", err)
-				}
-				data = append(data, buf[:m]...)
+		// One exchange deadline was armed above; body fragments must not
+		// renew it. Read exactly the declared length so a short body is an
+		// error even after the requested registers have arrived, and so
+		// bytes past this body stay in the stream for the next frame.
+		body := make([]byte, declared)
+		got, err := io.ReadFull(conn, body)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
+			return nil, fmt.Errorf("incomplete data packet: got %d want %d (hdr type=0x94): %w", got, declared, err)
 		}
-		if len(data) < need {
-			return nil, fmt.Errorf("incomplete data packet: got %d want %d (hdr type=0x94)", len(data), need)
-		}
-		return data[:need], nil
+		return append([]byte(nil), body[:need]...), nil
 	default:
 		return nil, fmt.Errorf("unexpected srtp reply type 0x%02x status 0x%02x", first[31], first[42])
 	}

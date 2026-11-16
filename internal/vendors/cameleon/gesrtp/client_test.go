@@ -3,8 +3,11 @@ package gesrtp
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -433,4 +436,296 @@ func TestCloseNowAgainstSilentPeer(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
 		t.Fatalf("CloseNow took %v; want <= 600ms", elapsed)
 	}
+}
+
+// chunk is one scripted Read result. A chunk longer than the caller's buffer
+// is split across Reads; its error is returned only with the final piece.
+type chunk struct {
+	b   []byte
+	err error
+}
+
+// scriptedConn is a net.Conn whose reads are a fixed sequence. It records
+// deadlines so a test can see whether a fragmented body renews the exchange.
+type scriptedConn struct {
+	mu            sync.Mutex
+	chunks        []chunk
+	deadlines     []time.Time
+	timeoutOnIdle bool
+	block         bool
+	idle          chan struct{}
+	wake          chan struct{}
+	idleOnce      sync.Once
+	wakeOnce      sync.Once
+}
+
+func (s *scriptedConn) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	s.mu.Lock()
+	if len(s.chunks) > 0 {
+		c := &s.chunks[0]
+		n := copy(p, c.b)
+		c.b = c.b[n:]
+		var err error
+		if len(c.b) == 0 {
+			err = c.err
+			s.chunks = s.chunks[1:]
+		}
+		s.mu.Unlock()
+		return n, err
+	}
+	timeout := s.timeoutOnIdle
+	block := s.block
+	wake := s.wake
+	s.mu.Unlock()
+	s.idleOnce.Do(func() {
+		if s.idle != nil {
+			close(s.idle)
+		}
+	})
+	if timeout {
+		return 0, os.ErrDeadlineExceeded
+	}
+	if block {
+		<-wake
+		return 0, os.ErrDeadlineExceeded
+	}
+	return 0, io.EOF
+}
+
+func (s *scriptedConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (s *scriptedConn) Close() error { return nil }
+
+func (s *scriptedConn) LocalAddr() net.Addr  { return scriptedAddr{} }
+func (s *scriptedConn) RemoteAddr() net.Addr { return scriptedAddr{} }
+
+func (s *scriptedConn) SetDeadline(t time.Time) error {
+	s.mu.Lock()
+	s.deadlines = append(s.deadlines, t)
+	due := !t.IsZero() && !t.After(time.Now())
+	s.mu.Unlock()
+	if due {
+		s.wakeOnce.Do(func() {
+			if s.wake != nil {
+				close(s.wake)
+			}
+		})
+	}
+	return nil
+}
+
+func (s *scriptedConn) SetReadDeadline(t time.Time) error  { return s.SetDeadline(t) }
+func (s *scriptedConn) SetWriteDeadline(t time.Time) error { return s.SetDeadline(t) }
+
+func (s *scriptedConn) deadlineCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.deadlines)
+}
+
+type scriptedAddr struct{}
+
+func (scriptedAddr) Network() string { return "tcp" }
+func (scriptedAddr) String() string  { return "scripted" }
+
+func followOnHeader(seq byte, declared int) []byte {
+	msg := make([]byte, 56)
+	msg[0] = 0x03
+	msg[2] = seq
+	msg[31] = 0x94
+	msg[42] = byte(declared)
+	return msg
+}
+
+func scriptedClient(conn net.Conn) *Client {
+	return &Client{conn: conn, timeout: time.Second, seq: 1}
+}
+
+func TestFollowOnDeclaredShorterThanRequested(t *testing.T) {
+	sc := &scriptedConn{chunks: []chunk{{b: followOnHeader(2, 4)}}}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err == nil {
+		t.Fatal("declared length shorter than the request returned success")
+	}
+	if got != nil {
+		t.Fatalf("short declaration returned %x", got)
+	}
+}
+
+func TestFollowOnEOFAfterRequestedBytesErrors(t *testing.T) {
+	// Six words need 12 bytes. The header declares 16, and the stream ends
+	// once those 12 have arrived. That must not succeed.
+	body := bytesRepeat(0x11, 12)
+	sc := &scriptedConn{chunks: []chunk{
+		{b: followOnHeader(2, 16)},
+		{b: body, err: io.EOF},
+	}}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err == nil {
+		t.Fatal("EOF before the declared body returned success")
+	}
+	if got != nil {
+		t.Fatalf("EOF before the declared body returned %x", got)
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v; want ErrUnexpectedEOF", err)
+	}
+}
+
+func TestFollowOnFragmentsSucceed(t *testing.T) {
+	body := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	sc := &scriptedConn{chunks: []chunk{
+		{b: followOnHeader(2, 12)},
+		{b: body[:3]},
+		{b: body[3:7]},
+		{b: body[7:]},
+	}}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytesEqual(got, body) {
+		t.Fatalf("body = %x", got)
+	}
+	if n := sc.deadlineCount(); n != 1 {
+		t.Fatalf("SetDeadline calls = %d; fragmented body renewed the exchange deadline", n)
+	}
+}
+
+func TestFollowOnLeavesSentinelUnread(t *testing.T) {
+	body := bytesRepeat(0x22, 12)
+	sentinel := []byte{0xAB, 0xCD}
+	sc := &scriptedConn{chunks: []chunk{
+		{b: followOnHeader(2, 12)},
+		{b: append(append([]byte(nil), body...), sentinel...)},
+	}}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytesEqual(got, body) {
+		t.Fatalf("body = %x", got)
+	}
+	rest := make([]byte, 8)
+	n, err := sc.Read(rest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != len(sentinel) || !bytesEqual(rest[:n], sentinel) {
+		t.Fatalf("unread = %x", rest[:n])
+	}
+}
+
+func TestFollowOnFinalBytesWithEOFSucceed(t *testing.T) {
+	body := []byte{0x34, 0x12, 0x78, 0x56, 0, 0, 0, 0, 0, 0, 0, 0}
+	sc := &scriptedConn{chunks: []chunk{
+		{b: followOnHeader(2, len(body))},
+		{b: body, err: io.EOF},
+	}}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err != nil {
+		t.Fatalf("final body bytes with EOF: %v", err)
+	}
+	if !bytesEqual(got, body) {
+		t.Fatalf("body = %x", got)
+	}
+}
+
+func TestFollowOnIncompleteBodyTimeout(t *testing.T) {
+	sc := &scriptedConn{
+		timeoutOnIdle: true,
+		chunks: []chunk{
+			{b: followOnHeader(2, 12)},
+			{b: []byte{1, 2, 3, 4}},
+		},
+	}
+	got, err := scriptedClient(sc).readMemoryOnce(context.Background(), MemR, 0, 6)
+	if err == nil {
+		t.Fatal("timed out body returned success")
+	}
+	if got != nil {
+		t.Fatalf("timed out body returned %x", got)
+	}
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("err = %v; want deadline exceeded", err)
+	}
+	if n := sc.deadlineCount(); n != 1 {
+		t.Fatalf("SetDeadline calls = %d; incomplete body renewed the exchange deadline", n)
+	}
+}
+
+func TestFollowOnBodyRespectsCancel(t *testing.T) {
+	sc := &scriptedConn{
+		block: true,
+		idle:  make(chan struct{}),
+		wake:  make(chan struct{}),
+		chunks: []chunk{
+			{b: followOnHeader(2, 12)},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		got, err := scriptedClient(sc).readMemoryOnce(ctx, MemR, 0, 6)
+		if got != nil {
+			errc <- errors.New("cancelled body returned bytes")
+			return
+		}
+		errc <- err
+	}()
+	select {
+	case <-sc.idle:
+	case <-time.After(2 * time.Second):
+		t.Fatal("body read did not block")
+	}
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v; want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled body read did not return")
+	}
+}
+
+func TestReadWordsHidesFailedChunk(t *testing.T) {
+	// Two 6-word chunks. The second declares 16 bytes and ends after 12.
+	first := bytesRepeat(0x25, 12)
+	sc := &scriptedConn{chunks: []chunk{
+		{b: followOnHeader(2, 12)},
+		{b: first},
+		{b: followOnHeader(3, 16)},
+		{b: bytesRepeat(0x25, 12), err: io.EOF},
+	}}
+	got, err := scriptedClient(sc).ReadWords(context.Background(), MemR, 1, 12)
+	if err == nil {
+		t.Fatal("failed second chunk returned success")
+	}
+	if got != nil {
+		t.Fatalf("failed second chunk returned %d words", len(got))
+	}
+}
+
+func bytesRepeat(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

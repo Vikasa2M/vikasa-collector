@@ -2,6 +2,9 @@ package cameleon
 
 import (
 	"context"
+	"encoding/binary"
+	"io"
+	"net"
 	"os"
 	"reflect"
 	"testing"
@@ -294,6 +297,61 @@ func TestACSUnreachableIsHardError(t *testing.T) {
 	_, err := a.Read(context.Background())
 	if err == nil {
 		t.Fatal("expected hard error")
+	}
+}
+
+// serveTruncatedFollowOn completes the handshake, then answers one %R read
+// with a 0x94 body that ends after the requested registers but before the
+// declared length. Closing the pipe delivers that shortfall as EOF.
+func serveTruncatedFollowOn(conn net.Conn) error {
+	defer func() { _ = conn.Close() }()
+	hdr := make([]byte, 56)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return err
+	}
+	ack := make([]byte, 56)
+	ack[0] = 0x01
+	if _, err := conn.Write(ack); err != nil {
+		return err
+	}
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return err
+	}
+	msg := make([]byte, 56)
+	msg[0] = 0x03
+	msg[2] = hdr[2]
+	msg[31] = 0x94
+	msg[42] = 16
+	payload := make([]byte, 12)
+	for i := 0; i < 6; i++ {
+		binary.LittleEndian.PutUint16(payload[i*2:], 0x0025)
+	}
+	_, err := conn.Write(append(msg, payload...))
+	return err
+}
+
+func TestACSIncompleteFollowOnDropsClient(t *testing.T) {
+	left, right := net.Pipe()
+	t.Cleanup(func() {
+		_ = left.Close()
+		_ = right.Close()
+	})
+	go func() { _ = serveTruncatedFollowOn(right) }()
+	client, err := gesrtp.New(left, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := NewACS("acs-1", client, 101, 6,
+		[]gateCfg{{id: "WG-1", kind: model.GateKindWarning, dsw: 101}}, cabinetCfg{})
+	snap, err := a.Read(context.Background())
+	if err == nil {
+		t.Fatal("truncated follow-on returned success")
+	}
+	if snap != nil {
+		t.Fatalf("truncated follow-on published an observation: %+v", snap)
+	}
+	if a.(*acs).client != nil {
+		t.Fatal("failed read kept the SRTP client")
 	}
 }
 
