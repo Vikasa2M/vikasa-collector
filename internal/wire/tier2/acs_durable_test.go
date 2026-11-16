@@ -112,15 +112,9 @@ devices:
 	}
 	streamName := publish.StreamNameForBinding("openits.us-ga.metro.d01.>")
 	appCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	runErr := make(chan error, 1)
 	go func() { runErr <- app.Run(appCtx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-runErr:
-		case <-time.After(5 * time.Second):
-		}
-	})
 
 	st := waitStream(t, js, streamName)
 	waitPolls(t, bank, 3)
@@ -180,8 +174,8 @@ devices:
 	if err := <-runErr; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("first run: %v", err)
 	}
-	appCtx, cancel = context.WithCancel(context.Background())
-	runErr = make(chan error, 1)
+	appCtx, cancelRestart := context.WithCancel(context.Background())
+	defer cancelRestart()
 	go func() { runErr <- app.Run(appCtx, cfg, reg, app.Options{NATSURL: ns.ClientURL(), Version: "test"}) }()
 	pollsAtRestart := bank.Polls()
 	waitPolls(t, bank, pollsAtRestart+3)
