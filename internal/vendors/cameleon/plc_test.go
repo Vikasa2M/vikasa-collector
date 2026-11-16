@@ -2,6 +2,7 @@ package cameleon
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,23 @@ func TestPLCOptionalKeysAbsentDoNotFault(t *testing.T) {
 	}
 }
 
+func TestPLCWatchdogKeepsMonotonicTimeOffTheEventTimestamp(t *testing.T) {
+	words := make([]uint16, 110)
+	words[0] = 1 << 11
+	a := plcACS(words, plcCfg{watchdogStall: 5 * time.Second}, time.Now)
+	snap := mustSnap(t, a)
+	if strings.Contains(snap.SampledAt.String(), "m=") {
+		t.Fatal("SampledAt retained a monotonic reading; event time must be wall UTC")
+	}
+	if !strings.Contains(a.wdSince.String(), "m=") {
+		t.Fatalf("wdSince = %s, want the monotonic reading from time.Now", a.wdSince)
+	}
+}
+
+// TestPLCWatchdogStallAndWrap uses time.Date, which has no monotonic
+// reading. It checks the wall-clock fallback for an injected clock. It
+// does not show that production time.Now comparisons use monotonic time;
+// TestPLCWatchdogKeepsMonotonicTimeOffTheEventTimestamp does that.
 func TestPLCWatchdogStallAndWrap(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	words := make([]uint16, 110)

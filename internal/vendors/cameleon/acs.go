@@ -153,7 +153,12 @@ func (a *acs) Read(ctx context.Context) (*model.Snapshot, error) {
 		return nil, fmt.Errorf("cameleon-acs %s: short DSW read: got %d want %d", a.deviceID, len(words), a.dswLen)
 	}
 
-	snap := &model.Snapshot{DeviceID: a.deviceID, SampledAt: a.now().UTC()}
+	// taken keeps the monotonic reading from time.Now. SampledAt is the UTC
+	// wall time published on events. Stall duration uses taken, because
+	// Time.UTC strips the monotonic reading and Before then follows the
+	// wall clock.
+	taken := a.now()
+	snap := &model.Snapshot{DeviceID: a.deviceID, SampledAt: taken.UTC()}
 
 	// A facet that cannot be fully decoded is left out of Facets and named
 	// in Errors (ADR 0013): absence of evidence is never a state change.
@@ -205,7 +210,7 @@ func (a *acs) Read(ctx context.Context) (*model.Snapshot, error) {
 	}
 
 	if faultErr == nil && a.seesPLCStatus() {
-		pf, perr := a.plcFaults(words, snap.SampledAt)
+		pf, perr := a.plcFaults(words, taken)
 		if perr != nil {
 			faultErr = perr
 		} else {
@@ -300,6 +305,10 @@ func (a *acs) plcFaults(words []uint16, now time.Time) ([]model.Fault, error) {
 func (a *acs) stalled(counter uint16, now time.Time) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// counter is the sampled five-bit field. Equality cannot tell a frozen
+	// counter from one that advanced by a multiple of 32 between polls.
+	// No single poll interval removes that alias for every tick rate, so
+	// the stall check stays enabled and does not claim a safe cadence.
 	if !a.wdHave || counter != a.wdLast {
 		a.wdHave = true
 		a.wdLast = counter
