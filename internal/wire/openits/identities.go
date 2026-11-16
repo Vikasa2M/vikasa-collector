@@ -228,7 +228,10 @@ func faultKindIdentity(c model.FaultCategory, deviceKind string, ft model.FaultT
 			// identity derived from reversible-lane-fault-gate, not a core leaf.
 			return cameleonRLTypes + "cameleon-gate-invalid-inputs", true
 		case model.FaultTypeGateCommandRefused:
-			return rlTypes + "reversible-lane-fault-interlock", true
+			// The alarm is active. It does not say whether the cause was an
+			// interlock, an offline device, or an invalid cabinet ID, and it
+			// does not identify who issued the command.
+			return cameleonRLTypes + "cameleon-gate-command-refused", true
 		case model.FaultTypePLCNotScanning:
 			// A successful read observed a counter that stopped. That is the
 			// controller watchdog leaf. The description stays the observation;
@@ -646,12 +649,12 @@ var dataSchemaFor = map[string]string{
 	"openits.perception.fault-raised.v1":      registryBase + "openits-common-fault-events/2026-10-14/",
 	"openits.perception.fault-cleared.v1":     registryBase + "openits-common-fault-events/2026-10-14/",
 
-	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-10-17/",
-	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-10-17/",
+	"openits.signal-control.cabinet-output-changed.v1":    registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.plan-applied.v1":              registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.operational-status-report.v1": registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.preemption-activated.v1":      registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.preemption-cleared.v1":        registryBase + "openits-signal-control-events/2026-11-09/",
+	"openits.signal-control.detector-report.v1":           registryBase + "openits-signal-control-events/2026-11-09/",
 
 	// v0.4.0 moved openits-dms-events to 2026-08-27 (the phase leaf at
 	// 2026-08-23, then the two new notifications); the other event modules
@@ -678,5 +681,5 @@ var dataSchemaFor = map[string]string{
 
 	"openits.reversible-lane.fault-raised.v1":        registryBase + "openits-common-fault-events/2026-10-14/",
 	"openits.reversible-lane.fault-cleared.v1":       registryBase + "openits-common-fault-events/2026-10-14/",
-	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-10-15/",
+	"openits.reversible-lane.gate-status-changed.v1": registryBase + "openits-reversible-lane-events/2026-10-22/",
 }

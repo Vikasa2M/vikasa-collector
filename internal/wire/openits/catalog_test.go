@@ -136,7 +136,11 @@ var unmapped = map[string]unmappedReason{
 	// reversible-lane
 	"openits.reversible-lane.lane-state-changed.v1":    serviceNotModeled,
 	"openits.reversible-lane.lcs-conflict-detected.v1": serviceNotModeled,
-	"openits.reversible-lane.transition-timeout.v1":    serviceNotModeled,
+	// The model declares this event. The ACS path reads gate status and
+	// gate faults, not lane-use signal-head changes, so there is no
+	// reading to encode.
+	"openits.reversible-lane.lcs-indication-changed.v1": serviceNotModeled,
+	"openits.reversible-lane.transition-timeout.v1":     serviceNotModeled,
 	// rsu
 	"openits.rsu.fault-cleared.v1":                   serviceNotModeled,
 	"openits.rsu.fault-raised.v1":                    serviceNotModeled,

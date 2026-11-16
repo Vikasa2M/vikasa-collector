@@ -560,16 +560,16 @@ func TestEncode_DetectorReport_RoundsIntervalAndFormatsOccupancy(t *testing.T) {
 	if len(got.GetDetector()) != 2 {
 		t.Fatalf("detector count = %d, want 2", len(got.GetDetector()))
 	}
-	// Occupancy is a YANG decimal64, so a string on the wire — 125 tenths is
-	// "12.5" percent, not the integer 125.
-	if w := "12.5"; got.GetDetector()[0].GetOccupancy() != w {
-		t.Errorf("occupancy = %q, want %q", got.GetDetector()[0].GetOccupancy(), w)
+	// occupancy-pct is a YANG decimal64, so a string on the wire — 125 tenths
+	// is "12.5" percent, not the integer 125. Zero is explicit "0.0".
+	if w := "12.5"; got.GetDetector()[0].GetOccupancyPct() != w {
+		t.Errorf("occupancy = %q, want %q", got.GetDetector()[0].GetOccupancyPct(), w)
 	}
 	if got.GetDetector()[0].GetVolume() != 42 {
 		t.Errorf("volume = %d, want 42", got.GetDetector()[0].GetVolume())
 	}
-	if w := "0.0"; got.GetDetector()[1].GetOccupancy() != w {
-		t.Errorf("zero occupancy = %q, want %q", got.GetDetector()[1].GetOccupancy(), w)
+	if w := "0.0"; got.GetDetector()[1].GetOccupancyPct() != w {
+		t.Errorf("zero occupancy = %q, want %q", got.GetDetector()[1].GetOccupancyPct(), w)
 	}
 }
 
@@ -693,7 +693,7 @@ func TestEncode_CarriesDataSchemaPinnedToDefiningEventsModule(t *testing.T) {
 	}, {
 		"plan-applied is defined by signal-control-events",
 		model.PlanChanged{Base: base("asc-1", "asc"), ToPlanID: 1},
-		"https://schemas.open-its.org/openits-signal-control-events/2026-10-17/",
+		"https://schemas.open-its.org/openits-signal-control-events/2026-11-09/",
 	}, {
 		"message-activation-failed is defined by dms-events, at its own revision",
 		model.DMSMessageActivationFailed{Base: base("dms-1", "dms")},
@@ -848,7 +848,7 @@ func TestFaultKindIdentity_ACSMapsByFaultType(t *testing.T) {
 		model.FaultTypeGateFailedToOpen:      "openits-reversible-lane-types:reversible-lane-fault-gate-failed-to-open",
 		model.FaultTypeGateEmergencyStop:     "openits-reversible-lane-types:reversible-lane-fault-gate-emergency-stop",
 		model.FaultTypeGateInvalidInputs:     "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-invalid-inputs",
-		model.FaultTypeGateCommandRefused:    "openits-reversible-lane-types:reversible-lane-fault-interlock",
+		model.FaultTypeGateCommandRefused:    "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-command-refused",
 		model.FaultTypePLCNotScanning:        "openits-reversible-lane-types:reversible-lane-fault-controller",
 		model.FaultTypePLCFault:              "openits-reversible-lane-types:reversible-lane-fault-controller",
 		model.FaultTypePLCCabinetIDMismatch:  "openits-reversible-lane-types:reversible-lane-fault-controller-configuration",
@@ -918,7 +918,7 @@ func TestEncode_GateFaultNamesComponent(t *testing.T) {
 	if ceType != "openits.reversible-lane.fault-raised.v1" {
 		t.Errorf("command-refused ce-type = %q", ceType)
 	}
-	if refused.GetKind() != "openits-reversible-lane-types:reversible-lane-fault-interlock" {
+	if refused.GetKind() != "openits-vendor-cameleon-reversible-lane-types:cameleon-gate-command-refused" {
 		t.Errorf("command-refused kind = %q", refused.GetKind())
 	}
 	comp = refused.GetComponent()
